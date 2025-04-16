@@ -284,168 +284,168 @@ jobs:
               core.setFailed('Workflow did not complete within the expected time');
             }
 
-  # 硬重置并强制推送
-  hard-reset-and-cleanup:
-    needs: trigger-flutter-build
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-      contents: write
-      pull-requests: write
-    steps:
-      # 等待工作流启动
-      - name: Wait for workflow to start
-        run: |
-          echo "Waiting 60 seconds for workflow to start..."
-          sleep 5
+  # # 硬重置并强制推送
+  # hard-reset-and-cleanup:
+  #   needs: trigger-flutter-build
+  #   runs-on: ubuntu-latest
+  #   permissions:
+  #     actions: write
+  #     contents: write
+  #     pull-requests: write
+  #   steps:
+  #     # 等待工作流启动
+  #     - name: Wait for workflow to start
+  #       run: |
+  #         echo "Waiting 60 seconds for workflow to start..."
+  #         sleep 5
 
-      # 等待 flutter-nightly 工作流完成
-      - name: Wait for flutter-nightly workflow
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ github.token }}
-          script: |
-            const maxAttempts = 180; // 最多等待180分钟
-            const interval = 60; // 每60秒检查一次
-            let attempts = 0;
+  #     # 等待 flutter-nightly 工作流完成
+  #     - name: Wait for flutter-nightly workflow
+  #       uses: actions/github-script@v7
+  #       with:
+  #         github-token: ${{ github.token }}
+  #         script: |
+  #           const maxAttempts = 180; // 最多等待180分钟
+  #           const interval = 60; // 每60秒检查一次
+  #           let attempts = 0;
             
-            while (attempts < maxAttempts) {
-              const runs = await github.rest.actions.listWorkflowRuns({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                workflow_id: 'flutter-nightly.yml',
-                branch: 'main',
-                per_page: 1
-              });
+  #           while (attempts < maxAttempts) {
+  #             const runs = await github.rest.actions.listWorkflowRuns({
+  #               owner: context.repo.owner,
+  #               repo: context.repo.repo,
+  #               workflow_id: 'flutter-nightly.yml',
+  #               branch: 'main',
+  #               per_page: 1
+  #             });
               
-              if (runs.data.total_count === 0) {
-                console.log('No workflow runs found, waiting...');
-                await new Promise(resolve => setTimeout(resolve, interval * 1000));
-                attempts++;
-                continue;
-              }
+  #             if (runs.data.total_count === 0) {
+  #               console.log('No workflow runs found, waiting...');
+  #               await new Promise(resolve => setTimeout(resolve, interval * 1000));
+  #               attempts++;
+  #               continue;
+  #             }
 
-              const latestRun = runs.data.workflow_runs[0];
-              console.log(`Latest workflow status: ${latestRun.status}, conclusion: ${latestRun.conclusion}`);
+  #             const latestRun = runs.data.workflow_runs[0];
+  #             console.log(`Latest workflow status: ${latestRun.status}, conclusion: ${latestRun.conclusion}`);
               
-              if (latestRun.status === 'completed') {
-                if (latestRun.conclusion === 'success' || latestRun.conclusion === 'cancelled') {
-                  console.log(`Workflow completed with conclusion: ${latestRun.conclusion}, continuing with next steps`);
-                  break;
-                } else {
-                  core.setFailed(`Workflow failed with conclusion: ${latestRun.conclusion}`);
-                  break;
-                }
-              }
+  #             if (latestRun.status === 'completed') {
+  #               if (latestRun.conclusion === 'success' || latestRun.conclusion === 'cancelled') {
+  #                 console.log(`Workflow completed with conclusion: ${latestRun.conclusion}, continuing with next steps`);
+  #                 break;
+  #               } else {
+  #                 core.setFailed(`Workflow failed with conclusion: ${latestRun.conclusion}`);
+  #                 break;
+  #               }
+  #             }
               
-              console.log(`Workflow still running, attempt ${attempts + 1}/${maxAttempts}`);
-              await new Promise(resolve => setTimeout(resolve, interval * 1000));
-              attempts++;
-            }
+  #             console.log(`Workflow still running, attempt ${attempts + 1}/${maxAttempts}`);
+  #             await new Promise(resolve => setTimeout(resolve, interval * 1000));
+  #             attempts++;
+  #           }
             
-            if (attempts >= maxAttempts) {
-              core.setFailed('Workflow did not complete within the expected time');
-            }
+  #           if (attempts >= maxAttempts) {
+  #             core.setFailed('Workflow did not complete within the expected time');
+  #           }
 
-      #检出 workflow 文件
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_TOKEN }}
+  #     #检出 workflow 文件
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #       with:
+  #         fetch-depth: 0
+  #         token: ${{ secrets.WORKFLOW_TOKEN }}
 
-      # 硬重置
-      - name: Sync with upstream
-        run: |
-          # 获取同步前的提交
-          SYNC_COMMIT=$(git rev-parse HEAD~1)
-          # 撤销同步提交
-          git reset --hard $SYNC_COMMIT
-          # 清除所有未跟踪的文件
-          git clean -fd
+  #     # 硬重置
+  #     - name: Sync with upstream
+  #       run: |
+  #         # 获取同步前的提交
+  #         SYNC_COMMIT=$(git rev-parse HEAD~1)
+  #         # 撤销同步提交
+  #         git reset --hard $SYNC_COMMIT
+  #         # 清除所有未跟踪的文件
+  #         git clean -fd
 
-      # 推送到仓库
-      - name: Push to repository with sync
-        uses: ad-m/github-push-action@master
-        with:
-          branch: main
-          force: true
-          github_token: ${{ secrets.WORKFLOW_TOKEN }}
+  #     # 推送到仓库
+  #     - name: Push to repository with sync
+  #       uses: ad-m/github-push-action@master
+  #       with:
+  #         branch: main
+  #         force: true
+  #         github_token: ${{ secrets.WORKFLOW_TOKEN }}
 
-  # 删除 release 源代码
-  delete-release-source:
-    needs: [setup, hard-reset-and-cleanup]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Delete source code from release
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ github.token }}
-          script: |
-            const tag = '${{ needs.setup.outputs.tag_name }}';
+  # # 删除 release 源代码
+  # delete-release-source:
+  #   needs: [setup, hard-reset-and-cleanup]
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Delete source code from release
+  #       uses: actions/github-script@v7
+  #       with:
+  #         github-token: ${{ github.token }}
+  #         script: |
+  #           const tag = '${{ needs.setup.outputs.tag_name }}';
             
-            try {
-              // 获取指定标签的 release
-              const { data: release } = await github.rest.repos.getReleaseByTag({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                tag: tag
-              });
+  #           try {
+  #             // 获取指定标签的 release
+  #             const { data: release } = await github.rest.repos.getReleaseByTag({
+  #               owner: context.repo.owner,
+  #               repo: context.repo.repo,
+  #               tag: tag
+  #             });
               
-              // 打印所有资源
-              console.log('All release assets:');
-              for (const asset of release.assets) {
-                console.log(` - ${asset.name} (${asset.id})`);
-              }
+  #             // 打印所有资源
+  #             console.log('All release assets:');
+  #             for (const asset of release.assets) {
+  #               console.log(` - ${asset.name} (${asset.id})`);
+  #             }
               
-              // 找到并删除源代码资源（使用多种可能的匹配模式）
-              let deletedAssets = 0;
-              for (const asset of release.assets) {
-                // 匹配可能的源代码文件名模式
-                if (
-                  asset.name.includes('Source code') || 
-                  asset.name.includes('source code') ||
-                  asset.name.endsWith('.zip') || 
-                  asset.name.endsWith('.tar.gz') ||
-                  asset.name.includes('source') ||
-                  asset.name.includes('Source')
-                ) {
-                  console.log(`Deleting asset: ${asset.name}`);
-                  await github.rest.repos.deleteReleaseAsset({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    asset_id: asset.id
-                  });
-                  deletedAssets++;
-                }
-              }
+  #             // 找到并删除源代码资源（使用多种可能的匹配模式）
+  #             let deletedAssets = 0;
+  #             for (const asset of release.assets) {
+  #               // 匹配可能的源代码文件名模式
+  #               if (
+  #                 asset.name.includes('Source code') || 
+  #                 asset.name.includes('source code') ||
+  #                 asset.name.endsWith('.zip') || 
+  #                 asset.name.endsWith('.tar.gz') ||
+  #                 asset.name.includes('source') ||
+  #                 asset.name.includes('Source')
+  #               ) {
+  #                 console.log(`Deleting asset: ${asset.name}`);
+  #                 await github.rest.repos.deleteReleaseAsset({
+  #                   owner: context.repo.owner,
+  #                   repo: context.repo.repo,
+  #                   asset_id: asset.id
+  #                 });
+  #                 deletedAssets++;
+  #               }
+  #             }
               
-              if (deletedAssets > 0) {
-                console.log(`Successfully deleted ${deletedAssets} source code assets`);
-              } else {
-                console.log('No source code assets found to delete');
-              }
-            } catch (error) {
-              if (error.status === 404) {
-                console.log('Release not found, skipping deletion');
-              } else {
-                console.log(`Error: ${error.message}`);
-                throw error;
-              }
-            }
+  #             if (deletedAssets > 0) {
+  #               console.log(`Successfully deleted ${deletedAssets} source code assets`);
+  #             } else {
+  #               console.log('No source code assets found to delete');
+  #             }
+  #           } catch (error) {
+  #             if (error.status === 404) {
+  #               console.log('Release not found, skipping deletion');
+  #             } else {
+  #               console.log(`Error: ${error.message}`);
+  #               throw error;
+  #             }
+  #           }
 
-  # 删除 workflow 运行
-  delete-workflow-runs:
-    needs: delete-release-source
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-      contents: read
-    steps:
-      - name: Delete workflow runs
-        uses: Mattraks/delete-workflow-runs@v2
-        with:
-          token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          retain_days: 0
-          keep_minimum_runs: 0
+  # # 删除 workflow 运行
+  # delete-workflow-runs:
+    # needs: delete-release-source
+    # runs-on: ubuntu-latest
+    # permissions:
+    #   actions: write
+    #   contents: read
+    # steps:
+    #   - name: Delete workflow runs
+    #     uses: Mattraks/delete-workflow-runs@v2
+    #     with:
+    #       token: ${{ github.token }}
+    #       repository: ${{ github.repository }}
+    #       retain_days: 0
+    #       keep_minimum_runs: 0
