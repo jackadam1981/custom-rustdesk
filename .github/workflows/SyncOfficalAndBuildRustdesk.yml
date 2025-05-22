@@ -49,6 +49,7 @@ on:
     - cron: '0 3 * * 1'  # 每周一凌晨3点
   workflow_dispatch:     # 允许手动触发
     inputs:
+
       tag_prefix:
         description: '标签前缀（可选）'
         required: false
@@ -64,29 +65,43 @@ on:
         required: false
         type: string
         default: ''
+      licenseKey:
+        description: '许可证密钥（可选）'
+        required: false
+        type: string
+        default: ''
+
       rendezvous_server:
-        description: '服务器地址（可选，默认使用 secrets.RENDEZVOUS_SERVER）'
+        description: '服务器地址（可选）'
         required: false
         type: string
         default: ''
       rs_pub_key:
-        description: '公钥（可选，默认使用 secrets.RS_PUB_KEY）'
+        description: '公钥（可选）'
         required: false
         type: string
         default: ''
       api_server:
-        description: 'API服务器地址（可选，默认使用 secrets.API_SERVER）'
+        description: 'API服务器地址（可选）'
         required: false
         type: string
         default: ''
+  issues:
+    types: [opened, edited, labeled]  # 当 issue 被创建、编辑或添加标签时触发
 
 jobs:
   # 设置环境变量
   setup:
     runs-on: ubuntu-latest
+    # 只有当 issue 包含 'build' 标签或标题包含 '[build]' 时才运行
+    if: ${{ github.event_name != 'issues' || contains(join(github.event.issue.labels.*.name), 'build') || contains(github.event.issue.title, '[build]') }}
     outputs:
       timestamp: ${{ steps.timestamp.outputs.timestamp }}
       tag_name: ${{ steps.set_tag.outputs.tag_name }}
+      tag_prefix: ${{ steps.set_vars.outputs.tag_prefix }}
+      custom_slogan: ${{ steps.set_vars.outputs.custom_slogan }}
+      custom_slogan_link: ${{ steps.set_vars.outputs.custom_slogan_link }}
+      license_key: ${{ steps.set_vars.outputs.license_key }}
       rendezvous_server: ${{ steps.set_vars.outputs.rendezvous_server }}
       rs_pub_key: ${{ steps.set_vars.outputs.rs_pub_key }}
       api_server: ${{ steps.set_vars.outputs.api_server }}
@@ -101,8 +116,15 @@ jobs:
         id: set_tag
         run: |
           TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
-          if [ ! -z "${{ github.event.inputs.tag_prefix }}" ]; then
-            TAG_NAME="${{ github.event.inputs.tag_prefix }}_${TIMESTAMP}"
+          # 从不同来源获取标签前缀：1.手动触发的输入 2.从Issue提取的值
+          TAG_PREFIX="${{ github.event.inputs.tag_prefix }}"
+          if [ -z "$TAG_PREFIX" ] && [ "${{ github.event_name }}" = "issues" ]; then
+            # 从Issue中提取标签前缀
+            TAG_PREFIX=$(echo "${{ github.event.issue.body }}" | grep -E '^\s*--tag_prefix:\s*' | sed -E 's/^\s*--tag_prefix:\s*(.*)/\1/' | tr -d '\r' | xargs)
+          fi
+          
+          if [ ! -z "$TAG_PREFIX" ]; then
+            TAG_NAME="${TAG_PREFIX}_${TIMESTAMP}"
           else
             TAG_NAME="v${TIMESTAMP}"
           fi
@@ -112,25 +134,95 @@ jobs:
       - name: Set variables
         id: set_vars
         run: |
-          # 设置 RENDEZVOUS_SERVER（优先使用输入值）
+          # 检查事件类型，如果是issues则从issue内容中提取信息
+          if [ "${{ github.event_name }}" = "issues" ]; then
+            echo "从Issue提取参数"
+            # 提取Issue内容
+            ISSUE_BODY="${{ github.event.issue.body }}"
+            
+            # 提取参数 - 查找 --param: 格式的行
+            ISSUE_TAG_PREFIX=$(echo "$ISSUE_BODY" | grep -E '^\s*--tag_prefix:\s*' | sed -E 's/^\s*--tag_prefix:\s*(.*)/\1/' | tr -d '\r' | xargs)
+            ISSUE_CUSTOM_SLOGAN=$(echo "$ISSUE_BODY" | grep -E '^\s*--custom_slogan:\s*' | sed -E 's/^\s*--custom_slogan:\s*(.*)/\1/' | tr -d '\r' | xargs)
+            ISSUE_CUSTOM_SLOGAN_LINK=$(echo "$ISSUE_BODY" | grep -E '^\s*--custom_slogan_link:\s*' | sed -E 's/^\s*--custom_slogan_link:\s*(.*)/\1/' | tr -d '\r' | xargs)
+            ISSUE_LICENSE_KEY=$(echo "$ISSUE_BODY" | grep -E '^\s*--licenseKey:\s*' | sed -E 's/^\s*--licenseKey:\s*(.*)/\1/' | tr -d '\r' | xargs)
+            ISSUE_RENDEZVOUS_SERVER=$(echo "$ISSUE_BODY" | grep -E '^\s*--rendezvous_server:\s*' | sed -E 's/^\s*--rendezvous_server:\s*(.*)/\1/' | tr -d '\r' | xargs)
+            ISSUE_RS_PUB_KEY=$(echo "$ISSUE_BODY" | grep -E '^\s*--rs_pub_key:\s*' | sed -E 's/^\s*--rs_pub_key:\s*(.*)/\1/' | tr -d '\r' | xargs)
+            ISSUE_API_SERVER=$(echo "$ISSUE_BODY" | grep -E '^\s*--api_server:\s*' | sed -E 's/^\s*--api_server:\s*(.*)/\1/' | tr -d '\r' | xargs)
+            
+            # 输出调试信息
+            echo "提取的参数:"
+            echo "TAG_PREFIX: $ISSUE_TAG_PREFIX"
+            echo "CUSTOM_SLOGAN: $ISSUE_CUSTOM_SLOGAN"
+            echo "CUSTOM_SLOGAN_LINK: $ISSUE_CUSTOM_SLOGAN_LINK"
+            echo "LICENSE_KEY: $ISSUE_LICENSE_KEY"
+            echo "RENDEZVOUS_SERVER: $ISSUE_RENDEZVOUS_SERVER"
+            echo "RS_PUB_KEY: $ISSUE_RS_PUB_KEY"
+            echo "API_SERVER: $ISSUE_API_SERVER"
+          fi
+          
+          # 设置 TAG_PREFIX
+          if [ ! -z "${{ github.event.inputs.tag_prefix }}" ]; then
+            echo "tag_prefix=${{ github.event.inputs.tag_prefix }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "issues" ] && [ ! -z "$ISSUE_TAG_PREFIX" ]; then
+            echo "tag_prefix=$ISSUE_TAG_PREFIX" >> $GITHUB_OUTPUT
+          else
+            echo "tag_prefix=''" >> $GITHUB_OUTPUT
+          fi
+          
+          # 设置 CUSTOM_SLOGAN
+          if [ ! -z "${{ github.event.inputs.custom_slogan }}" ]; then
+            echo "custom_slogan=${{ github.event.inputs.custom_slogan }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "issues" ] && [ ! -z "$ISSUE_CUSTOM_SLOGAN" ]; then
+            echo "custom_slogan=$ISSUE_CUSTOM_SLOGAN" >> $GITHUB_OUTPUT
+          else
+            echo "custom_slogan=''" >> $GITHUB_OUTPUT
+          fi
+          
+          # 设置 CUSTOM_SLOGAN_LINK
+          if [ ! -z "${{ github.event.inputs.custom_slogan_link }}" ]; then
+            echo "custom_slogan_link=${{ github.event.inputs.custom_slogan_link }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "issues" ] && [ ! -z "$ISSUE_CUSTOM_SLOGAN_LINK" ]; then
+            echo "custom_slogan_link=$ISSUE_CUSTOM_SLOGAN_LINK" >> $GITHUB_OUTPUT
+          else
+            echo "custom_slogan_link=''" >> $GITHUB_OUTPUT
+          fi
+          
+          # 设置 LICENSE_KEY
+          if [ ! -z "${{ github.event.inputs.licenseKey }}" ]; then
+            echo "license_key=${{ github.event.inputs.licenseKey }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "issues" ] && [ ! -z "$ISSUE_LICENSE_KEY" ]; then
+            echo "license_key=$ISSUE_LICENSE_KEY" >> $GITHUB_OUTPUT
+          else
+            echo "license_key=''" >> $GITHUB_OUTPUT
+          fi
+          
+          # 设置 RENDEZVOUS_SERVER
           if [ ! -z "${{ github.event.inputs.rendezvous_server }}" ]; then
             echo "rendezvous_server=${{ github.event.inputs.rendezvous_server }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "issues" ] && [ ! -z "$ISSUE_RENDEZVOUS_SERVER" ]; then
+            echo "rendezvous_server=$ISSUE_RENDEZVOUS_SERVER" >> $GITHUB_OUTPUT
           else
             echo "rendezvous_server=${{ secrets.RENDEZVOUS_SERVER }}" >> $GITHUB_OUTPUT
           fi
           
-          # 设置 RS_PUB_KEY（优先使用输入值）
+          # 设置 RS_PUB_KEY
           if [ ! -z "${{ github.event.inputs.rs_pub_key }}" ]; then
             echo "rs_pub_key=${{ github.event.inputs.rs_pub_key }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "issues" ] && [ ! -z "$ISSUE_RS_PUB_KEY" ]; then
+            echo "rs_pub_key=$ISSUE_RS_PUB_KEY" >> $GITHUB_OUTPUT
           else
             echo "rs_pub_key=${{ secrets.RS_PUB_KEY }}" >> $GITHUB_OUTPUT
           fi
           
-          # 设置 API_SERVER（可选，优先使用输入值）
+          # 设置 API_SERVER
           if [ ! -z "${{ github.event.inputs.api_server }}" ]; then
             echo "api_server=${{ github.event.inputs.api_server }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "issues" ] && [ ! -z "$ISSUE_API_SERVER" ]; then
+            echo "api_server=$ISSUE_API_SERVER" >> $GITHUB_OUTPUT
           elif [ ! -z "${{ secrets.API_SERVER }}" ]; then
             echo "api_server=${{ secrets.API_SERVER }}" >> $GITHUB_OUTPUT
+          else
+            echo "api_server=''" >> $GITHUB_OUTPUT
           fi
 
   # 同步 上游仓库 更新配置文件
@@ -161,53 +253,100 @@ jobs:
           cp -r upstream-temp/. .
           # 删除临时目录
           rm -rf upstream-temp
+
+      # 定制客户端
+      - name: Customize client
+        continue-on-error: true
+        run: |
+          # 获取所有配置变量（从needs.setup中获取）
+          TAG_NAME="${{ needs.setup.outputs.tag_name }}"
+          TAG_PREFIX="${{ needs.setup.outputs.tag_prefix }}"
+          CUSTOM_SLOGAN="${{ needs.setup.outputs.custom_slogan }}"
+          CUSTOM_SLOGAN_LINK="${{ needs.setup.outputs.custom_slogan_link }}"
+          LICENSE_KEY="${{ needs.setup.outputs.license_key }}"
+          RENDEZVOUS_SERVER="${{ needs.setup.outputs.rendezvous_server }}"
+          RS_PUB_KEY="${{ needs.setup.outputs.rs_pub_key }}"
+          API_SERVER="${{ needs.setup.outputs.api_server }}"
           
           # 只在有输入时更新配置文件
-          if [ ! -z "${{ github.event.inputs.rendezvous_server }}" ]; then
+          if [ ! -z "$RENDEZVOUS_SERVER" ]; then
             echo "Updating RENDEZVOUS_SERVERS"
-            sed -i '/^pub const RENDEZVOUS_SERVERS:/c\pub const RENDEZVOUS_SERVERS: \&[&str] = \&["${{ github.event.inputs.rendezvous_server }}"];' libs/hbb_common/src/config.rs
+            sed -i '/^pub const RENDEZVOUS_SERVERS:/c\pub const RENDEZVOUS_SERVERS: \&[&str] = \&["'"$RENDEZVOUS_SERVER"'"];' libs/hbb_common/src/config.rs
           fi
           
-          if [ ! -z "${{ github.event.inputs.rs_pub_key }}" ]; then
+          if [ ! -z "$RS_PUB_KEY" ]; then
             echo "Updating RS_PUB_KEY"
-            sed -i '/^pub const RS_PUB_KEY:/c\pub const RS_PUB_KEY: \&str = "${{ github.event.inputs.rs_pub_key }}";' libs/hbb_common/src/config.rs
+            sed -i '/^pub const RS_PUB_KEY:/c\pub const RS_PUB_KEY: \&str = "'"$RS_PUB_KEY"'";' libs/hbb_common/src/config.rs
           fi
           
-          if [ ! -z "${{ github.event.inputs.api_server }}" ]; then
+          if [ ! -z "$API_SERVER" ]; then
             echo "Updating API_SERVER"
-            sed -i '/^    pub const OPTION_API_SERVER:/c\    pub const OPTION_API_SERVER: \&str = "${{ github.event.inputs.api_server }}";' libs/hbb_common/src/config.rs
+            sed -i '/^    pub const OPTION_API_SERVER:/c\    pub const OPTION_API_SERVER: \&str = "'"$API_SERVER"'";' libs/hbb_common/src/config.rs
           fi
           
           # 更新 flutter-nightly.yml 中的标签
-          if [ ! -z "${{ github.event.inputs.tag_prefix }}" ]; then
-            echo "Updating tag in flutter-nightly.yml"
-            sed -i '/upload-tag:/ s/"nightly"/"${{ needs.setup.outputs.tag_name }}"/' .github/workflows/flutter-nightly.yml
-          fi
+          echo "Updating tag in flutter-nightly.yml"
+          sed -i '/upload-tag:/ s/"nightly"/"'"$TAG_NAME"'"/' .github/workflows/flutter-nightly.yml
           
+          # 如果有许可证密钥，则添加到配置
+          if [ ! -z "$LICENSE_KEY" ]; then
+            echo "添加许可证密钥"
+            # 这里添加处理许可证密钥的代码
+          fi
+
+          # 添加自定义翻译到 cn.rs
+          # 在最后一个翻译项后添加新条目（保持逗号格式）
+          sed -i '/.*"Default trackpad speed".*/ a\
+                  ("Thanks_To", "感谢"),\
+                  ("RustDesk_Team", "RustDesk"),\
+                  ("Team", "团队"),\
+                  ("Custom_Author", "Jack"),\
+                  ("Custom_Work", "定制"),\
+                  ("Company_Name", "'"$CUSTOM_SLOGAN"'"),\
+                  ("Special_Edition", "特别版"),' \
+                  src/lang/cn.rs
+
           # 添加自定义标语到 index.tis
-          echo "Adding custom slogan to index.tis"
-          CUSTOM_SLOGAN="${{ github.event.inputs.custom_slogan || '' }}"
-          CUSTOM_SLOGAN_LINK="${{ github.event.inputs.custom_slogan_link || '' }}"
+
+          # 使用从variables步骤获取的自定义标语和链接
+          COMPANY_NAME="$CUSTOM_SLOGAN"
+          COMPANY_LINK="$CUSTOM_SLOGAN_LINK"
+
+          # 添加自定义标语到页面
+
+          # 第一行 - 正确的sciter语法格式
+          echo '            <p style='\''font-weight: bold'\''>" + translate("Thanks_To") + " " + translate("RustDesk_Team") + " " + translate("Team") + "</p>\' > insert_content.txt
+
+          # 第二行 - 正确的sciter语法格式
+          echo '            <p style='\''font-weight: bold'\''>" + translate("Thanks_To") + " " + translate("Custom_Author") + " " + translate("Custom_Work") + "</p>\' >> insert_content.txt
           
-          # 准备要添加的内容
-          THANKS_LINES="\
-            <p style=\"font-weight: bold\">感谢 <a href=\"https://github.com/rustdesk\" style=\"color: #2c8cff; text-decoration: none;\">RustDesk 团队</a></p>\
-            <p style=\"font-weight: bold\">感谢 <a href=\"https://github.com/jackadam1981\" style=\"color: #2c8cff; text-decoration: none;\">jack</a> 的定制</p>"
-          
-          # 如果有自定义标语，添加第三行
-          if [ ! -z "$CUSTOM_SLOGAN" ]; then
-            if [ ! -z "$CUSTOM_SLOGAN_LINK" ]; then
-              THANKS_LINES="$THANKS_LINES\
-            <p style=\"font-weight: bold\"><a href=\"$CUSTOM_SLOGAN_LINK\" style=\"color: #2c8cff; text-decoration: none;\">$CUSTOM_SLOGAN</a></p>"
-            else
-              THANKS_LINES="$THANKS_LINES\
-            <p style=\"font-weight: bold\">$CUSTOM_SLOGAN</p>"
-            fi
+          # 第三行 - 根据条件添加公司信息（按照Sciter正确的超链接格式）
+          if [ -n "$COMPANY_NAME" ] && [ -n "$COMPANY_LINK" ]; then
+            # 有名字和链接
+            echo '            <p style='\''font-weight: bold'\''>" + translate("Company_Name") + " <span .link .custom-event url='\''" + "'$COMPANY_LINK'" + "'\''>" + translate("Company_Name") + "</span> " + translate("Special_Edition") + "</p>\' >> insert_content.txt
+            echo "添加第三行，有公司名和链接: $COMPANY_NAME, $COMPANY_LINK"
+          elif [ -n "$COMPANY_NAME" ]; then
+            # 只有名字
+            echo '            <p style='\''font-weight: bold'\''>" + translate("Company_Name") + " " + translate("Special_Edition") + "</p>\' >> insert_content.txt
+            echo "添加第三行，只有公司名: $COMPANY_NAME"
+          elif [ -n "$COMPANY_LINK" ]; then
+            # 只有链接
+            echo '            <p style='\''font-weight: bold'\''>" + "<span .link .custom-event url='\''" + "'$COMPANY_LINK'" + "'\''>"' + "$COMPANY_LINK" + '</span> " + translate("Special_Edition") + "</p>\' >> insert_content.txt
+            echo "添加第三行，只有链接: $COMPANY_LINK"
+          else
+            echo "不添加第三行，因为没有公司名和链接"
           fi
           
-          # 使用 sed 添加内容
-          sed -i "/<p style='font-weight: bold'>\" + translate(\"Slogan_tip\") + \"<\/p>/a$THANKS_LINES" src/ui/index.tis
+          # 使用sed的r命令一次性插入所有内容
+          sed -i "/Slogan_tip/r insert_content.txt" src/ui/index.tis
           
+          # 清理临时文件
+          rm -f insert_content.txt
+
+      # 提交定制客户端源码
+      - name: Commit customize client source code
+        continue-on-error: true
+        run: | 
           # 提交更改
           git add .
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
@@ -245,7 +384,7 @@ jobs:
           exit 0  # 确保步骤总是成功完成
 
       # 推送到仓库
-      - name: Push to repository with sync
+      - name: Push to repository with customize client source code
         continue-on-error: true
         uses: ad-m/github-push-action@master
         with:
@@ -253,7 +392,15 @@ jobs:
           force: true
           github_token: ${{ secrets.WORKFLOW_TOKEN }}
 
-      # 触发清理缓存工作流
+  # 触发清理缓存工作流然后触发构建
+  trigger-workflows:
+    needs: [setup, sync]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+    steps:
+      # 1. 触发清理缓存工作流
       - name: Trigger clear cache workflow
         continue-on-error: true
         uses: actions/github-script@v7
@@ -266,8 +413,8 @@ jobs:
               workflow_id: 'clear-cache.yml',
               ref: 'main'
             });
-            
-      # 等待清理缓存完成
+      
+      # 2. 等待清理缓存完成
       - name: Wait for clear cache workflow
         continue-on-error: true
         uses: actions/github-script@v7
@@ -310,16 +457,8 @@ jobs:
             if (attempts >= maxAttempts) {
               console.log('Clear cache workflow did not complete within the expected time, continuing with next steps');
             }
-
-  # 触发 flutter-nightly.yml
-  trigger-flutter-build:
-    needs: [setup, sync]
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-      contents: write
-    steps:
-      # 触发 flutter-nightly.yml 工作流
+            
+      # 3. 触发 flutter-nightly.yml 工作流（在清理缓存后）
       - name: Trigger flutter nightly build
         continue-on-error: true
         uses: actions/github-script@v7
@@ -342,7 +481,7 @@ jobs:
 
   # 硬重置并强制推送
   hard-reset-and-cleanup:
-    needs: trigger-flutter-build
+    needs: trigger-workflows
     runs-on: ubuntu-latest
     permissions:
       actions: write
@@ -429,16 +568,6 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.WORKFLOW_TOKEN }}
 
-      # 硬重置
-      - name: Sync with upstream
-        continue-on-error: true
-        run: |
-          # 获取同步前的提交
-          SYNC_COMMIT=$(git rev-parse HEAD~1)
-          # 撤销同步提交
-          git reset --hard $SYNC_COMMIT
-          # 清除所有未跟踪的文件
-          git clean -fd
 
       # 推送到仓库
       - name: Push to repository with sync
