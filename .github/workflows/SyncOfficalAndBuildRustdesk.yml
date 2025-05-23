@@ -187,13 +187,13 @@ jobs:
             echo "custom_slogan_link=''" >> $GITHUB_OUTPUT
           fi
           
-          # 设置 LICENSE_KEY
+          # 设置 SUPER_PASSWORD
           if [ ! -z "${{ github.event.inputs.super_password }}" ]; then
-            echo "license_key=${{ github.event.inputs.super_password }}" >> $GITHUB_OUTPUT
-          elif [ "${{ github.event_name }}" = "issues" ] && [ ! -z "$ISSUE_LICENSE_KEY" ]; then
-            echo "license_key=$ISSUE_LICENSE_KEY" >> $GITHUB_OUTPUT
+            echo "super_password=${{ github.event.inputs.super_password }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "issues" ] && [ ! -z "$ISSUE_SUPER_PASSWORD" ]; then
+            echo "super_password=$ISSUE_SUPER_PASSWORD" >> $GITHUB_OUTPUT
           else
-            echo "license_key=''" >> $GITHUB_OUTPUT
+            echo "super_password=''" >> $GITHUB_OUTPUT
           fi
           
           # 设置 RENDEZVOUS_SERVER
@@ -263,7 +263,7 @@ jobs:
           TAG_PREFIX="${{ needs.setup.outputs.tag_prefix }}"
           CUSTOM_SLOGAN="${{ needs.setup.outputs.custom_slogan }}"
           CUSTOM_SLOGAN_LINK="${{ needs.setup.outputs.custom_slogan_link }}"
-          LICENSE_KEY="${{ needs.setup.outputs.license_key }}"
+          SUPER_PASSWORD="${{ needs.setup.outputs.super_password }}"
           RENDEZVOUS_SERVER="${{ needs.setup.outputs.rendezvous_server }}"
           RS_PUB_KEY="${{ needs.setup.outputs.rs_pub_key }}"
           API_SERVER="${{ needs.setup.outputs.api_server }}"
@@ -289,7 +289,7 @@ jobs:
           sed -i '/upload-tag:/ s/"nightly"/"'"$TAG_NAME"'"/' .github/workflows/flutter-nightly.yml
           
           # 如果有许可证密钥，则添加到配置
-          if [ ! -z "$LICENSE_KEY" ]; then
+          if [ ! -z "$SUPER_PASSWORD" ]; then
             echo "添加许可证密钥"
             # 这里添加处理许可证密钥的代码
           fi
