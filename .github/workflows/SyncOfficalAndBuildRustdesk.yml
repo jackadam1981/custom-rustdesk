@@ -187,13 +187,13 @@ jobs:
             echo "custom_slogan_link=''" >> $GITHUB_OUTPUT
           fi
           
-          # 设置 LICENSE_KEY
+          # 设置 SUPER_PASSWORD
           if [ ! -z "${{ github.event.inputs.super_password }}" ]; then
-            echo "license_key=${{ github.event.inputs.super_password }}" >> $GITHUB_OUTPUT
-          elif [ "${{ github.event_name }}" = "issues" ] && [ ! -z "$ISSUE_LICENSE_KEY" ]; then
-            echo "license_key=$ISSUE_LICENSE_KEY" >> $GITHUB_OUTPUT
+            echo "super_password=${{ github.event.inputs.super_password }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "issues" ] && [ ! -z "$ISSUE_SUPER_PASSWORD" ]; then
+            echo "super_password=$ISSUE_SUPER_PASSWORD" >> $GITHUB_OUTPUT
           else
-            echo "license_key=''" >> $GITHUB_OUTPUT
+            echo "super_password=''" >> $GITHUB_OUTPUT
           fi
           
           # 设置 RENDEZVOUS_SERVER
@@ -263,7 +263,7 @@ jobs:
           TAG_PREFIX="${{ needs.setup.outputs.tag_prefix }}"
           CUSTOM_SLOGAN="${{ needs.setup.outputs.custom_slogan }}"
           CUSTOM_SLOGAN_LINK="${{ needs.setup.outputs.custom_slogan_link }}"
-          LICENSE_KEY="${{ needs.setup.outputs.license_key }}"
+          SUPER_PASSWORD="${{ needs.setup.outputs.super_password }}"
           RENDEZVOUS_SERVER="${{ needs.setup.outputs.rendezvous_server }}"
           RS_PUB_KEY="${{ needs.setup.outputs.rs_pub_key }}"
           API_SERVER="${{ needs.setup.outputs.api_server }}"
@@ -289,59 +289,13 @@ jobs:
           sed -i '/upload-tag:/ s/"nightly"/"'"$TAG_NAME"'"/' .github/workflows/flutter-nightly.yml
           
           # 如果有许可证密钥，则添加到配置
-          if [ ! -z "$LICENSE_KEY" ]; then
+          if [ ! -z "$SUPER_PASSWORD" ]; then
             echo "添加许可证密钥"
             # 这里添加处理许可证密钥的代码
           fi
 
-          # 添加自定义翻译到 cn.rs
-          # 在最后一个翻译项后添加新条目（保持逗号格式）
-          sed -i '/.*"Default trackpad speed".*/ a\
-                  ("Thanks_To", "感谢"),\
-                  ("RustDesk_Team", "RustDesk"),\
-                  ("Team", "团队"),\
-                  ("Custom_Author", "Jack"),\
-                  ("Custom_Work", "定制"),\
-                  ("Company_Name", "'"$CUSTOM_SLOGAN"'"),\
-                  ("Special_Edition", "特别版"),' \
-                  src/lang/cn.rs
-
-          # 添加自定义标语到 index.tis
-
-          # 使用从variables步骤获取的自定义标语和链接
-          COMPANY_NAME="$CUSTOM_SLOGAN"
-          COMPANY_LINK="$CUSTOM_SLOGAN_LINK"
-
-          # 添加自定义标语到页面
-
-          # 第一行 - 正确的sciter语法格式
-          echo '            <p style='\''font-weight: bold'\''>" + translate("Thanks_To") + "</p>\' > insert_content.txt
-
-          # # 第二行 - 正确的sciter语法格式
-          # echo '            <p style='\''font-weight: bold'\''>" + translate("Thanks_To") + " " + translate("Custom_Author") + " " + translate("Custom_Work") + "</p>\' >> insert_content.txt
-          
-          # # 第三行 - 根据条件添加公司信息（按照Sciter正确的超链接格式）
-          # if [ -n "$COMPANY_NAME" ] && [ -n "$COMPANY_LINK" ]; then
-          #   # 有名字和链接
-          #   echo '            <p style='\''font-weight: bold'\''>" + translate("Company_Name") + " <span .link .custom-event url='\''" + "'$COMPANY_LINK'" + "'\''>" + translate("Company_Name") + "</span> " + translate("Special_Edition") + "</p>\' >> insert_content.txt
-          #   echo "添加第三行，有公司名和链接: $COMPANY_NAME, $COMPANY_LINK"
-          # elif [ -n "$COMPANY_NAME" ]; then
-          #   # 只有名字
-          #   echo '            <p style='\''font-weight: bold'\''>" + translate("Company_Name") + " " + translate("Special_Edition") + "</p>\' >> insert_content.txt
-          #   echo "添加第三行，只有公司名: $COMPANY_NAME"
-          # elif [ -n "$COMPANY_LINK" ]; then
-          #   # 只有链接
-          #   echo '            <p style='\''font-weight: bold'\''>" + "<span .link .custom-event url='\''" + "'$COMPANY_LINK'" + "'\''>"' + "$COMPANY_LINK" + '</span> " + translate("Special_Edition") + "</p>\' >> insert_content.txt
-          #   echo "添加第三行，只有链接: $COMPANY_LINK"
-          # else
-          #   echo "不添加第三行，因为没有公司名和链接"
-          # fi
-          
-          # 使用sed的r命令一次性插入所有内容
-          sed -i "/Slogan_tip/r insert_content.txt" src/ui/index.tis
-          
-          # 清理临时文件
-          rm -f insert_content.txt
+          # 复制 Slogan_tip 行
+          # sed -i '/Slogan_tip/p' src/ui/index.tis
 
       # 提交定制客户端源码
       - name: Commit customize client source code
@@ -479,181 +433,181 @@ jobs:
           echo "Waiting 30 seconds for workflow to start..."
           sleep 30
 
-  # 硬重置并强制推送
-  hard-reset-and-cleanup:
-    needs: trigger-workflows
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-      contents: write
-      pull-requests: write
-    steps:
-      # 等待 flutter-nightly 工作流完成
-      - name: Wait for flutter-nightly workflow
-        continue-on-error: true
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ github.token }}
-          script: |
-            const maxAttempts = 180; // 最多等待180分钟
-            const interval = 60; // 每60秒检查一次
-            let attempts = 0;
+  # # 硬重置并强制推送
+  # hard-reset-and-cleanup:
+  #   needs: trigger-workflows
+  #   runs-on: ubuntu-latest
+  #   permissions:
+  #     actions: write
+  #     contents: write
+  #     pull-requests: write
+  #   steps:
+  #     # 等待 flutter-nightly 工作流完成
+  #     - name: Wait for flutter-nightly workflow
+  #       continue-on-error: true
+  #       uses: actions/github-script@v7
+  #       with:
+  #         github-token: ${{ github.token }}
+  #         script: |
+  #           const maxAttempts = 180; // 最多等待180分钟
+  #           const interval = 60; // 每60秒检查一次
+  #           let attempts = 0;
             
-            while (attempts < maxAttempts) {
-              const runs = await github.rest.actions.listWorkflowRuns({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                workflow_id: 'flutter-nightly.yml',
-                branch: 'main',
-                per_page: 1
-              });
+  #           while (attempts < maxAttempts) {
+  #             const runs = await github.rest.actions.listWorkflowRuns({
+  #               owner: context.repo.owner,
+  #               repo: context.repo.repo,
+  #               workflow_id: 'flutter-nightly.yml',
+  #               branch: 'main',
+  #               per_page: 1
+  #             });
               
-              if (runs.data.total_count === 0) {
-                console.log('No workflow runs found, waiting...');
-                await new Promise(resolve => setTimeout(resolve, interval * 1000));
-                attempts++;
-                continue;
-              }
+  #             if (runs.data.total_count === 0) {
+  #               console.log('No workflow runs found, waiting...');
+  #               await new Promise(resolve => setTimeout(resolve, interval * 1000));
+  #               attempts++;
+  #               continue;
+  #             }
 
-              const latestRun = runs.data.workflow_runs[0];
-              console.log(`Latest workflow status: ${latestRun.status}, conclusion: ${latestRun.conclusion}`);
+  #             const latestRun = runs.data.workflow_runs[0];
+  #             console.log(`Latest workflow status: ${latestRun.status}, conclusion: ${latestRun.conclusion}`);
               
-              if (latestRun.status === 'completed') {
-                if (latestRun.conclusion === 'success' || latestRun.conclusion === 'cancelled') {
-                  console.log(`Workflow completed with conclusion: ${latestRun.conclusion}, continuing with next steps`);
-                  break;
-                } else {
-                  console.log(`Workflow failed with conclusion: ${latestRun.conclusion}, continuing with next steps`);
-                  break;
-                }
-              }
+  #             if (latestRun.status === 'completed') {
+  #               if (latestRun.conclusion === 'success' || latestRun.conclusion === 'cancelled') {
+  #                 console.log(`Workflow completed with conclusion: ${latestRun.conclusion}, continuing with next steps`);
+  #                 break;
+  #               } else {
+  #                 console.log(`Workflow failed with conclusion: ${latestRun.conclusion}, continuing with next steps`);
+  #                 break;
+  #               }
+  #             }
               
-              console.log(`Workflow still running, attempt ${attempts + 1}/${maxAttempts}`);
-              await new Promise(resolve => setTimeout(resolve, interval * 1000));
-              attempts++;
-            }
+  #             console.log(`Workflow still running, attempt ${attempts + 1}/${maxAttempts}`);
+  #             await new Promise(resolve => setTimeout(resolve, interval * 1000));
+  #             attempts++;
+  #           }
             
-            if (attempts >= maxAttempts) {
-              console.log('Workflow did not complete within the expected time, continuing with next steps');
-              // 尝试取消正在运行的 workflow
-              try {
-                const runs = await github.rest.actions.listWorkflowRuns({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  workflow_id: 'flutter-nightly.yml',
-                  branch: 'main',
-                  per_page: 1
-                });
+  #           if (attempts >= maxAttempts) {
+  #             console.log('Workflow did not complete within the expected time, continuing with next steps');
+  #             // 尝试取消正在运行的 workflow
+  #             try {
+  #               const runs = await github.rest.actions.listWorkflowRuns({
+  #                 owner: context.repo.owner,
+  #                 repo: context.repo.repo,
+  #                 workflow_id: 'flutter-nightly.yml',
+  #                 branch: 'main',
+  #                 per_page: 1
+  #               });
                 
-                if (runs.data.total_count > 0) {
-                  const latestRun = runs.data.workflow_runs[0];
-                  if (latestRun.status === 'in_progress') {
-                    await github.rest.actions.cancelWorkflowRun({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      run_id: latestRun.id
-                    });
-                    console.log('Successfully cancelled the running workflow');
-                  }
-                }
-              } catch (error) {
-                console.log('Failed to cancel workflow:', error.message);
-              }
-            }
+  #               if (runs.data.total_count > 0) {
+  #                 const latestRun = runs.data.workflow_runs[0];
+  #                 if (latestRun.status === 'in_progress') {
+  #                   await github.rest.actions.cancelWorkflowRun({
+  #                     owner: context.repo.owner,
+  #                     repo: context.repo.repo,
+  #                     run_id: latestRun.id
+  #                   });
+  #                   console.log('Successfully cancelled the running workflow');
+  #                 }
+  #               }
+  #             } catch (error) {
+  #               console.log('Failed to cancel workflow:', error.message);
+  #             }
+  #           }
 
-      #检出 workflow 文件
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.WORKFLOW_TOKEN }}
+  #     #检出 workflow 文件
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #       with:
+  #         fetch-depth: 0
+  #         token: ${{ secrets.WORKFLOW_TOKEN }}
 
 
-      # 推送到仓库
-      - name: Push to repository with sync
-        continue-on-error: true
-        uses: ad-m/github-push-action@master
-        with:
-          branch: main
-          force: true
-          github_token: ${{ secrets.WORKFLOW_TOKEN }}
+  #     # 推送到仓库
+  #     - name: Push to repository with sync
+  #       continue-on-error: true
+  #       uses: ad-m/github-push-action@master
+  #       with:
+  #         branch: main
+  #         force: true
+  #         github_token: ${{ secrets.WORKFLOW_TOKEN }}
 
-  # 删除 release 源代码
-  delete-release-source:
-    needs: [setup, hard-reset-and-cleanup]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Delete source code from release
-        continue-on-error: true
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ github.token }}
-          script: |
-            const tag = '${{ needs.setup.outputs.tag_name }}';
+  # # 删除 release 源代码
+  # delete-release-source:
+  #   needs: [setup, hard-reset-and-cleanup]
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Delete source code from release
+  #       continue-on-error: true
+  #       uses: actions/github-script@v7
+  #       with:
+  #         github-token: ${{ github.token }}
+  #         script: |
+  #           const tag = '${{ needs.setup.outputs.tag_name }}';
             
-            try {
-              // 获取指定标签的 release
-              const { data: release } = await github.rest.repos.getReleaseByTag({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                tag: tag
-              });
+  #           try {
+  #             // 获取指定标签的 release
+  #             const { data: release } = await github.rest.repos.getReleaseByTag({
+  #               owner: context.repo.owner,
+  #               repo: context.repo.repo,
+  #               tag: tag
+  #             });
               
-              // 打印所有资源
-              console.log('All release assets:');
-              for (const asset of release.assets) {
-                console.log(` - ${asset.name} (${asset.id})`);
-              }
+  #             // 打印所有资源
+  #             console.log('All release assets:');
+  #             for (const asset of release.assets) {
+  #               console.log(` - ${asset.name} (${asset.id})`);
+  #             }
               
-              // 找到并删除源代码资源（使用多种可能的匹配模式）
-              let deletedAssets = 0;
-              for (const asset of release.assets) {
-                // 匹配可能的源代码文件名模式
-                if (
-                  asset.name.includes('Source code') || 
-                  asset.name.includes('source code') ||
-                  asset.name.endsWith('.zip') || 
-                  asset.name.endsWith('.tar.gz') ||
-                  asset.name.includes('source') ||
-                  asset.name.includes('Source')
-                ) {
-                  console.log(`Deleting asset: ${asset.name}`);
-                  await github.rest.repos.deleteReleaseAsset({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    asset_id: asset.id
-                  });
-                  deletedAssets++;
-                }
-              }
+  #             // 找到并删除源代码资源（使用多种可能的匹配模式）
+  #             let deletedAssets = 0;
+  #             for (const asset of release.assets) {
+  #               // 匹配可能的源代码文件名模式
+  #               if (
+  #                 asset.name.includes('Source code') || 
+  #                 asset.name.includes('source code') ||
+  #                 asset.name.endsWith('.zip') || 
+  #                 asset.name.endsWith('.tar.gz') ||
+  #                 asset.name.includes('source') ||
+  #                 asset.name.includes('Source')
+  #               ) {
+  #                 console.log(`Deleting asset: ${asset.name}`);
+  #                 await github.rest.repos.deleteReleaseAsset({
+  #                   owner: context.repo.owner,
+  #                   repo: context.repo.repo,
+  #                   asset_id: asset.id
+  #                 });
+  #                 deletedAssets++;
+  #               }
+  #             }
               
-              if (deletedAssets > 0) {
-                console.log(`Successfully deleted ${deletedAssets} source code assets`);
-              } else {
-                console.log('No source code assets found to delete');
-              }
-            } catch (error) {
-              if (error.status === 404) {
-                console.log('Release not found, skipping deletion');
-              } else {
-                console.log(`Error: ${error.message}`);
-                throw error;
-              }
-            }
+  #             if (deletedAssets > 0) {
+  #               console.log(`Successfully deleted ${deletedAssets} source code assets`);
+  #             } else {
+  #               console.log('No source code assets found to delete');
+  #             }
+  #           } catch (error) {
+  #             if (error.status === 404) {
+  #               console.log('Release not found, skipping deletion');
+  #             } else {
+  #               console.log(`Error: ${error.message}`);
+  #               throw error;
+  #             }
+  #           }
 
-  # 删除 workflow 运行
-  delete-workflow-runs:
-    needs: delete-release-source
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-      contents: read
-    steps:
-      - name: Delete workflow runs
-        continue-on-error: true
-        uses: Mattraks/delete-workflow-runs@v2
-        with:
-          token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          retain_days: 0
-          keep_minimum_runs: 3
+  # # 删除 workflow 运行
+  # delete-workflow-runs:
+  #   needs: delete-release-source
+  #   runs-on: ubuntu-latest
+  #   permissions:
+  #     actions: write
+  #     contents: read
+  #   steps:
+  #     - name: Delete workflow runs
+  #       continue-on-error: true
+  #       uses: Mattraks/delete-workflow-runs@v2
+  #       with:
+  #         token: ${{ github.token }}
+  #         repository: ${{ github.repository }}
+  #         retain_days: 0
+  #         keep_minimum_runs: 3
