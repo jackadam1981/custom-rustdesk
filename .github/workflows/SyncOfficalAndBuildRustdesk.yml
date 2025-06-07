@@ -1,6 +1,6 @@
 name: Sync offical and build rustdesk
 
-run-name: ${{ github.actor }} building at ${{ github.event.repository.name }} 
+run-name: ${{ github.actor }} building at ${{ github.event.repository.name }} 手动触发原版编译
 
 # GitHub Actions 配置说明
 # ======================
@@ -264,8 +264,7 @@ jobs:
           cp -r upstream-temp/. .
           # 删除临时目录
           rm -rf upstream-temp
-          # 删除定时任务
-          sed -i '4,6d' .github/workflows/flutter-nightly.yml
+
 
       # 定制客户端
       - name: Customize client
@@ -290,6 +289,14 @@ jobs:
           echo "RS_PUB_KEY: $RS_PUB_KEY"
           echo "API_SERVER: $API_SERVER"
 
+
+          # 删除定时任务
+          sed -i '4,6d' .github/workflows/flutter-nightly.yml
+
+          # 更新 flutter-nightly.yml 中的标签
+          echo "Updating tag in flutter-nightly.yml"
+          sed -i '/upload-tag:/ s/"nightly"/"'"$TAG_NAME"'"/' .github/workflows/flutter-nightly.yml
+
             
       #     # 只在有输入时更新配置文件
       #     if [ ! -z "$RENDEZVOUS_SERVER" ]; then
@@ -307,9 +314,7 @@ jobs:
       #       sed -i '/^    pub const OPTION_API_SERVER:/c\    pub const OPTION_API_SERVER: \&str = "'"$API_SERVER"'";' libs/hbb_common/src/config.rs
       #     fi
           
-      #     # 更新 flutter-nightly.yml 中的标签
-      #     echo "Updating tag in flutter-nightly.yml"
-      #     sed -i '/upload-tag:/ s/"nightly"/"'"$TAG_NAME"'"/' .github/workflows/flutter-nightly.yml
+
           
       #     # 如果有许可证密钥，则添加到配置
       #     if [ ! -z "$SUPER_PASSWORD" ]; then
