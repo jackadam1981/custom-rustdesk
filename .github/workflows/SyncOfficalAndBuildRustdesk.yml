@@ -1,6 +1,6 @@
 name: Sync offical and build rustdesk
 
-run-name: ${{ github.actor }} building at ${{ github.event.repository.name }} 手动触发原版编译
+run-name: ${{ github.actor }} building at ${{ github.event.repository.name }} issue触发原版编译
 
 # GitHub Actions 配置说明
 # ======================
