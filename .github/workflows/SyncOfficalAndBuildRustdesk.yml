@@ -358,7 +358,7 @@ jobs:
           echo "内容不同的文件:"
           diff -r --exclude=.git --exclude=upstream-compare . upstream-compare --brief | grep -v "Only in"
           
-          echo -e "\n=== flutter-nightly.yml 内容 ==="
+          echo -e "\n=== flutter-nightly.yml info ==="
           cat .github/workflows/flutter-nightly.yml
           
           # 清理临时目录
@@ -461,104 +461,104 @@ jobs:
           echo "Waiting 30 seconds for workflow to start..."
           sleep 30
 
-  # # 硬重置并强制推送
-  # hard-reset-and-cleanup:
-  #   needs: trigger-workflows
-  #   runs-on: ubuntu-latest
-  #   permissions:
-  #     actions: write
-  #     contents: write
-  #     pull-requests: write
-  #   steps:
-  #     # 等待 flutter-nightly 工作流完成
-  #     - name: Wait for flutter-nightly workflow
-  #       continue-on-error: true
-  #       uses: actions/github-script@v7
-  #       with:
-  #         github-token: ${{ github.token }}
-  #         script: |
-  #           const maxAttempts = 180; // 最多等待180分钟
-  #           const interval = 60; // 每60秒检查一次
-  #           let attempts = 0;
+  # 硬重置并强制推送
+  hard-reset-and-cleanup:
+    needs: trigger-workflows
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
+    steps:
+      # 等待 flutter-nightly 工作流完成
+      - name: Wait for flutter-nightly workflow
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const maxAttempts = 180; // 最多等待180分钟
+            const interval = 60; // 每60秒检查一次
+            let attempts = 0;
             
-  #           while (attempts < maxAttempts) {
-  #             const runs = await github.rest.actions.listWorkflowRuns({
-  #               owner: context.repo.owner,
-  #               repo: context.repo.repo,
-  #               workflow_id: 'flutter-nightly.yml',
-  #               branch: 'main',
-  #               per_page: 1
-  #             });
+            while (attempts < maxAttempts) {
+              const runs = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'flutter-nightly.yml',
+                branch: 'main',
+                per_page: 1
+              });
               
-  #             if (runs.data.total_count === 0) {
-  #               console.log('No workflow runs found, waiting...');
-  #               await new Promise(resolve => setTimeout(resolve, interval * 1000));
-  #               attempts++;
-  #               continue;
-  #             }
+              if (runs.data.total_count === 0) {
+                console.log('No workflow runs found, waiting...');
+                await new Promise(resolve => setTimeout(resolve, interval * 1000));
+                attempts++;
+                continue;
+              }
 
-  #             const latestRun = runs.data.workflow_runs[0];
-  #             console.log(`Latest workflow status: ${latestRun.status}, conclusion: ${latestRun.conclusion}`);
+              const latestRun = runs.data.workflow_runs[0];
+              console.log(`Latest workflow status: ${latestRun.status}, conclusion: ${latestRun.conclusion}`);
               
-  #             if (latestRun.status === 'completed') {
-  #               if (latestRun.conclusion === 'success' || latestRun.conclusion === 'cancelled') {
-  #                 console.log(`Workflow completed with conclusion: ${latestRun.conclusion}, continuing with next steps`);
-  #                 break;
-  #               } else {
-  #                 console.log(`Workflow failed with conclusion: ${latestRun.conclusion}, continuing with next steps`);
-  #                 break;
-  #               }
-  #             }
+              if (latestRun.status === 'completed') {
+                if (latestRun.conclusion === 'success' || latestRun.conclusion === 'cancelled') {
+                  console.log(`Workflow completed with conclusion: ${latestRun.conclusion}, continuing with next steps`);
+                  break;
+                } else {
+                  console.log(`Workflow failed with conclusion: ${latestRun.conclusion}, continuing with next steps`);
+                  break;
+                }
+              }
               
-  #             console.log(`Workflow still running, attempt ${attempts + 1}/${maxAttempts}`);
-  #             await new Promise(resolve => setTimeout(resolve, interval * 1000));
-  #             attempts++;
-  #           }
+              console.log(`Workflow still running, attempt ${attempts + 1}/${maxAttempts}`);
+              await new Promise(resolve => setTimeout(resolve, interval * 1000));
+              attempts++;
+            }
             
-  #           if (attempts >= maxAttempts) {
-  #             console.log('Workflow did not complete within the expected time, continuing with next steps');
-  #             // 尝试取消正在运行的 workflow
-  #             try {
-  #               const runs = await github.rest.actions.listWorkflowRuns({
-  #                 owner: context.repo.owner,
-  #                 repo: context.repo.repo,
-  #                 workflow_id: 'flutter-nightly.yml',
-  #                 branch: 'main',
-  #                 per_page: 1
-  #               });
+            if (attempts >= maxAttempts) {
+              console.log('Workflow did not complete within the expected time, continuing with next steps');
+              // 尝试取消正在运行的 workflow
+              try {
+                const runs = await github.rest.actions.listWorkflowRuns({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  workflow_id: 'flutter-nightly.yml',
+                  branch: 'main',
+                  per_page: 1
+                });
                 
-  #               if (runs.data.total_count > 0) {
-  #                 const latestRun = runs.data.workflow_runs[0];
-  #                 if (latestRun.status === 'in_progress') {
-  #                   await github.rest.actions.cancelWorkflowRun({
-  #                     owner: context.repo.owner,
-  #                     repo: context.repo.repo,
-  #                     run_id: latestRun.id
-  #                   });
-  #                   console.log('Successfully cancelled the running workflow');
-  #                 }
-  #               }
-  #             } catch (error) {
-  #               console.log('Failed to cancel workflow:', error.message);
-  #             }
-  #           }
+                if (runs.data.total_count > 0) {
+                  const latestRun = runs.data.workflow_runs[0];
+                  if (latestRun.status === 'in_progress') {
+                    await github.rest.actions.cancelWorkflowRun({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      run_id: latestRun.id
+                    });
+                    console.log('Successfully cancelled the running workflow');
+                  }
+                }
+              } catch (error) {
+                console.log('Failed to cancel workflow:', error.message);
+              }
+            }
 
-  #     #检出 workflow 文件
-  #     - name: Checkout repository
-  #       uses: actions/checkout@v4
-  #       with:
-  #         fetch-depth: 0
-  #         token: ${{ secrets.WORKFLOW_TOKEN }}
+      #检出 workflow 文件
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_TOKEN }}
 
 
-  #     # 推送到仓库
-  #     - name: Push to repository with sync
-  #       continue-on-error: true
-  #       uses: ad-m/github-push-action@master
-  #       with:
-  #         branch: main
-  #         force: true
-  #         github_token: ${{ secrets.WORKFLOW_TOKEN }}
+      # 推送到仓库
+      - name: Push to repository with sync
+        continue-on-error: true
+        uses: ad-m/github-push-action@master
+        with:
+          branch: main
+          force: true
+          github_token: ${{ secrets.WORKFLOW_TOKEN }}
 
   # # 删除 release 源代码
   # delete-release-source:
