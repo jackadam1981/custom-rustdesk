@@ -45,8 +45,8 @@ run-name: ${{ github.actor }} building at ${{ github.event.repository.name }} is
 #    - 默认值最低
 
 on:
-  schedule:
-    - cron: '0 3 * * 1'  # 每周一凌晨3点
+  # schedule:
+  #   - cron: '0 3 * * 1'  # 每周一凌晨3点
   workflow_dispatch:     # 允许手动触发
     inputs:
 
@@ -298,32 +298,30 @@ jobs:
           sed -i '/upload-tag:/ s/"nightly"/"'"$TAG_NAME"'"/' .github/workflows/flutter-nightly.yml
 
             
-      #     # 只在有输入时更新配置文件
-      #     if [ ! -z "$RENDEZVOUS_SERVER" ]; then
-      #       echo "Updating RENDEZVOUS_SERVERS"
-      #       sed -i '/^pub const RENDEZVOUS_SERVERS:/c\pub const RENDEZVOUS_SERVERS: \&[&str] = \&["'"$RENDEZVOUS_SERVER"'"];' libs/hbb_common/src/config.rs
-      #     fi
+          # 只在有输入时更新配置文件
+          if [ ! -z "$RENDEZVOUS_SERVER" ]; then
+            echo "Updating RENDEZVOUS_SERVERS"
+            sed -i '/^pub const RENDEZVOUS_SERVERS:/c\pub const RENDEZVOUS_SERVERS: \&[&str] = \&["'"$RENDEZVOUS_SERVER"'"];' libs/hbb_common/src/config.rs
+          fi
           
-      #     if [ ! -z "$RS_PUB_KEY" ]; then
-      #       echo "Updating RS_PUB_KEY"
-      #       sed -i '/^pub const RS_PUB_KEY:/c\pub const RS_PUB_KEY: \&str = "'"$RS_PUB_KEY"'";' libs/hbb_common/src/config.rs
-      #     fi
+          if [ ! -z "$RS_PUB_KEY" ]; then
+            echo "Updating RS_PUB_KEY"
+            sed -i '/^pub const RS_PUB_KEY:/c\pub const RS_PUB_KEY: \&str = "'"$RS_PUB_KEY"'";' libs/hbb_common/src/config.rs
+          fi
           
-      #     if [ ! -z "$API_SERVER" ]; then
-      #       echo "Updating API_SERVER"
-      #       sed -i '/^    pub const OPTION_API_SERVER:/c\    pub const OPTION_API_SERVER: \&str = "'"$API_SERVER"'";' libs/hbb_common/src/config.rs
-      #     fi
-          
+          if [ ! -z "$API_SERVER" ]; then
+            echo "Updating API_SERVER"
+            sed -i '/^    pub const OPTION_API_SERVER:/c\    pub const OPTION_API_SERVER: \&str = "'"$API_SERVER"'";' libs/hbb_common/src/config.rs
+          fi
 
+          # 复制 Slogan_tip 行
+          sed -i '/Slogan_tip/p' src/ui/index.tis
           
-      #     # 如果有许可证密钥，则添加到配置
-      #     if [ ! -z "$SUPER_PASSWORD" ]; then
-      #       echo "添加许可证密钥"
-      #       # 这里添加处理许可证密钥的代码
-      #     fi
-
-      #     # 复制 Slogan_tip 行
-      #     # sed -i '/Slogan_tip/p' src/ui/index.tis
+          # 如果有许可证密钥，则添加到配置
+          if [ ! -z "$SUPER_PASSWORD" ]; then
+            echo "添加许可证密钥"
+            # 这里添加处理许可证密钥的代码
+          fi
 
       # 提交定制客户端源码
       - name: Commit customize client source code
@@ -358,7 +356,7 @@ jobs:
           echo "内容不同的文件:"
           diff -r --exclude=.git --exclude=upstream-compare . upstream-compare --brief | grep -v "Only in"
           
-          echo -e "\n=== flutter-nightly.yml 内容 ==="
+          echo -e "\n=== flutter-nightly.yml info ==="
           cat .github/workflows/flutter-nightly.yml
           
           # 清理临时目录
@@ -461,104 +459,104 @@ jobs:
           echo "Waiting 30 seconds for workflow to start..."
           sleep 30
 
-  # # 硬重置并强制推送
-  # hard-reset-and-cleanup:
-  #   needs: trigger-workflows
-  #   runs-on: ubuntu-latest
-  #   permissions:
-  #     actions: write
-  #     contents: write
-  #     pull-requests: write
-  #   steps:
-  #     # 等待 flutter-nightly 工作流完成
-  #     - name: Wait for flutter-nightly workflow
-  #       continue-on-error: true
-  #       uses: actions/github-script@v7
-  #       with:
-  #         github-token: ${{ github.token }}
-  #         script: |
-  #           const maxAttempts = 180; // 最多等待180分钟
-  #           const interval = 60; // 每60秒检查一次
-  #           let attempts = 0;
+  # 硬重置并强制推送
+  hard-reset-and-cleanup:
+    needs: trigger-workflows
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
+    steps:
+      # 等待 flutter-nightly 工作流完成
+      - name: Wait for flutter-nightly workflow
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const maxAttempts = 180; // 最多等待180分钟
+            const interval = 60; // 每60秒检查一次
+            let attempts = 0;
             
-  #           while (attempts < maxAttempts) {
-  #             const runs = await github.rest.actions.listWorkflowRuns({
-  #               owner: context.repo.owner,
-  #               repo: context.repo.repo,
-  #               workflow_id: 'flutter-nightly.yml',
-  #               branch: 'main',
-  #               per_page: 1
-  #             });
+            while (attempts < maxAttempts) {
+              const runs = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'flutter-nightly.yml',
+                branch: 'main',
+                per_page: 1
+              });
               
-  #             if (runs.data.total_count === 0) {
-  #               console.log('No workflow runs found, waiting...');
-  #               await new Promise(resolve => setTimeout(resolve, interval * 1000));
-  #               attempts++;
-  #               continue;
-  #             }
+              if (runs.data.total_count === 0) {
+                console.log('No workflow runs found, waiting...');
+                await new Promise(resolve => setTimeout(resolve, interval * 1000));
+                attempts++;
+                continue;
+              }
 
-  #             const latestRun = runs.data.workflow_runs[0];
-  #             console.log(`Latest workflow status: ${latestRun.status}, conclusion: ${latestRun.conclusion}`);
+              const latestRun = runs.data.workflow_runs[0];
+              console.log(`Latest workflow status: ${latestRun.status}, conclusion: ${latestRun.conclusion}`);
               
-  #             if (latestRun.status === 'completed') {
-  #               if (latestRun.conclusion === 'success' || latestRun.conclusion === 'cancelled') {
-  #                 console.log(`Workflow completed with conclusion: ${latestRun.conclusion}, continuing with next steps`);
-  #                 break;
-  #               } else {
-  #                 console.log(`Workflow failed with conclusion: ${latestRun.conclusion}, continuing with next steps`);
-  #                 break;
-  #               }
-  #             }
+              if (latestRun.status === 'completed') {
+                if (latestRun.conclusion === 'success' || latestRun.conclusion === 'cancelled') {
+                  console.log(`Workflow completed with conclusion: ${latestRun.conclusion}, continuing with next steps`);
+                  break;
+                } else {
+                  console.log(`Workflow failed with conclusion: ${latestRun.conclusion}, continuing with next steps`);
+                  break;
+                }
+              }
               
-  #             console.log(`Workflow still running, attempt ${attempts + 1}/${maxAttempts}`);
-  #             await new Promise(resolve => setTimeout(resolve, interval * 1000));
-  #             attempts++;
-  #           }
+              console.log(`Workflow still running, attempt ${attempts + 1}/${maxAttempts}`);
+              await new Promise(resolve => setTimeout(resolve, interval * 1000));
+              attempts++;
+            }
             
-  #           if (attempts >= maxAttempts) {
-  #             console.log('Workflow did not complete within the expected time, continuing with next steps');
-  #             // 尝试取消正在运行的 workflow
-  #             try {
-  #               const runs = await github.rest.actions.listWorkflowRuns({
-  #                 owner: context.repo.owner,
-  #                 repo: context.repo.repo,
-  #                 workflow_id: 'flutter-nightly.yml',
-  #                 branch: 'main',
-  #                 per_page: 1
-  #               });
+            if (attempts >= maxAttempts) {
+              console.log('Workflow did not complete within the expected time, continuing with next steps');
+              // 尝试取消正在运行的 workflow
+              try {
+                const runs = await github.rest.actions.listWorkflowRuns({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  workflow_id: 'flutter-nightly.yml',
+                  branch: 'main',
+                  per_page: 1
+                });
                 
-  #               if (runs.data.total_count > 0) {
-  #                 const latestRun = runs.data.workflow_runs[0];
-  #                 if (latestRun.status === 'in_progress') {
-  #                   await github.rest.actions.cancelWorkflowRun({
-  #                     owner: context.repo.owner,
-  #                     repo: context.repo.repo,
-  #                     run_id: latestRun.id
-  #                   });
-  #                   console.log('Successfully cancelled the running workflow');
-  #                 }
-  #               }
-  #             } catch (error) {
-  #               console.log('Failed to cancel workflow:', error.message);
-  #             }
-  #           }
+                if (runs.data.total_count > 0) {
+                  const latestRun = runs.data.workflow_runs[0];
+                  if (latestRun.status === 'in_progress') {
+                    await github.rest.actions.cancelWorkflowRun({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      run_id: latestRun.id
+                    });
+                    console.log('Successfully cancelled the running workflow');
+                  }
+                }
+              } catch (error) {
+                console.log('Failed to cancel workflow:', error.message);
+              }
+            }
 
-  #     #检出 workflow 文件
-  #     - name: Checkout repository
-  #       uses: actions/checkout@v4
-  #       with:
-  #         fetch-depth: 0
-  #         token: ${{ secrets.WORKFLOW_TOKEN }}
+      #检出 workflow 文件
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_TOKEN }}
 
 
-  #     # 推送到仓库
-  #     - name: Push to repository with sync
-  #       continue-on-error: true
-  #       uses: ad-m/github-push-action@master
-  #       with:
-  #         branch: main
-  #         force: true
-  #         github_token: ${{ secrets.WORKFLOW_TOKEN }}
+      # 推送到仓库
+      - name: Push to repository with sync
+        continue-on-error: true
+        uses: ad-m/github-push-action@master
+        with:
+          branch: main
+          force: true
+          github_token: ${{ secrets.WORKFLOW_TOKEN }}
 
   # # 删除 release 源代码
   # delete-release-source:
