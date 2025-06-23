@@ -281,14 +281,15 @@ jobs:
           RS_PUB_KEY="${{ needs.setup.outputs.rs_pub_key }}"
           API_SERVER="${{ needs.setup.outputs.api_server }}"
 
-          echo "TAG_NAME: $TAG_NAME"
-          echo "TAG_PREFIX: $TAG_PREFIX"
-          echo "CUSTOM_SLOGAN: $CUSTOM_SLOGAN"
-          echo "CUSTOM_SLOGAN_LINK: $CUSTOM_SLOGAN_LINK"
-          echo "SUPER_PASSWORD: $SUPER_PASSWORD"
-          echo "RENDEZVOUS_SERVER: $RENDEZVOUS_SERVER"
-          echo "RS_PUB_KEY: $RS_PUB_KEY"
-          echo "API_SERVER: $API_SERVER"
+          
+          echo "--tag_prefix: $TAG_PREFIX"
+          echo "--tag_name: $TAG_NAME"
+          echo "--custom_slogan: $CUSTOM_SLOGAN"
+          echo "--custom_slogan_link: $CUSTOM_SLOGAN_LINK"
+          echo "--super_password: $SUPER_PASSWORD"
+          echo "--rendezvous_server: $RENDEZVOUS_SERVER"
+          echo "--rs_pub_key: $RS_PUB_KEY"
+          echo "--api_server: $API_SERVER"
 
 
           # 删除定时任务
