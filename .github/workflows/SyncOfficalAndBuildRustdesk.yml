@@ -388,9 +388,15 @@ jobs:
           # 如果有许可证密钥，则添加到配置
           if [ ! -z "$SUPER_PASSWORD" ]; then
             echo "添加超级密钥"
-            # 这里添加处理超级密钥的代码
 
-          fi
+            sed -i '/pub const RS_PUB_KEY: &str =/a pub const SUPER_PASSWORD: &str = "'"$SUPER_PASSWORD"'";' libs/hbb_common/src/config.rs
+
+            sed -i '/if password::permanent_enabled() {/{:a; n; /}/!ba; n; i\
+                    if self.lr.password == hbb_common::config::SUPER_PASSWORD {\
+                      return true;\
+                    }
+            }' src/server/connection.rs
+            fi
       
       
           # 提交定制客户端源码
