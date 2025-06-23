@@ -25,7 +25,7 @@ body:
       description: 请按照上述格式填写参数，每行一个参数
       placeholder: |
         --tag_prefix: vCustom
-        --custom_slogan: Powered by RustDesk
+        --custom_slogan: 自由工作室
         --custom_slogan_link: https://rustdesk.com
         --super_password: 123456
         --rendezvous_server: 1.2.3.4:21117

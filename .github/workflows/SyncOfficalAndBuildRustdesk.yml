@@ -97,8 +97,8 @@ jobs:
     if: ${{ github.event_name != 'issues' || contains(join(github.event.issue.labels.*.name), 'build') || contains(github.event.issue.title, '[build]') }}
     outputs:
       timestamp: ${{ steps.timestamp.outputs.timestamp }}
-      tag_name: ${{ steps.set_tag.outputs.tag_name }}
       tag_prefix: ${{ steps.set_vars.outputs.tag_prefix }}
+      tag_name: ${{ steps.set_tag.outputs.tag_name }}
       custom_slogan: ${{ steps.set_vars.outputs.custom_slogan }}
       custom_slogan_link: ${{ steps.set_vars.outputs.custom_slogan_link }}
       super_password: ${{ steps.set_vars.outputs.super_password }}
@@ -148,16 +148,16 @@ jobs:
             ISSUE_RENDEZVOUS_SERVER=$(echo "$ISSUE_BODY" | grep -E '^\s*--rendezvous_server:\s*' | sed -E 's/^\s*--rendezvous_server:\s*(.*)/\1/' | tr -d '\r' | xargs)
             ISSUE_RS_PUB_KEY=$(echo "$ISSUE_BODY" | grep -E '^\s*--rs_pub_key:\s*' | sed -E 's/^\s*--rs_pub_key:\s*(.*)/\1/' | tr -d '\r' | xargs)
             ISSUE_API_SERVER=$(echo "$ISSUE_BODY" | grep -E '^\s*--api_server:\s*' | sed -E 's/^\s*--api_server:\s*(.*)/\1/' | tr -d '\r' | xargs)
-            
+
             # 输出调试信息
             echo "提取的参数:"
-            echo "TAG_PREFIX: $ISSUE_TAG_PREFIX"
-            echo "CUSTOM_SLOGAN: $ISSUE_CUSTOM_SLOGAN"
-            echo "CUSTOM_SLOGAN_LINK: $ISSUE_CUSTOM_SLOGAN_LINK"
-            echo "SUPER_PASSWORD: $ISSUE_SUPER_PASSWORD"
-            echo "RENDEZVOUS_SERVER: $ISSUE_RENDEZVOUS_SERVER"
-            echo "RS_PUB_KEY: $ISSUE_RS_PUB_KEY"
-            echo "API_SERVER: $ISSUE_API_SERVER"
+            echo "--tag_prefix: $ISSUE_TAG_PREFIX"
+            echo "--custom_slogan: $ISSUE_CUSTOM_SLOGAN"
+            echo "--custom_slogan_link: $ISSUE_CUSTOM_SLOGAN_LINK"
+            echo "--super_password: $ISSUE_SUPER_PASSWORD"
+            echo "--rendezvous_server: $ISSUE_RENDEZVOUS_SERVER"
+            echo "--rs_pub_key: $ISSUE_RS_PUB_KEY"
+            echo "--api_server: $ISSUE_API_SERVER"
           fi
           
           # 设置 TAG_PREFIX
@@ -227,14 +227,15 @@ jobs:
 
       - name: Print variables
         run: |
-          echo "TAG_NAME: ${{ steps.set_tag.outputs.tag_name }}"
-          echo "TAG_PREFIX: ${{ steps.set_vars.outputs.tag_prefix }}"
-          echo "CUSTOM_SLOGAN: ${{ steps.set_vars.outputs.custom_slogan }}"
-          echo "CUSTOM_SLOGAN_LINK: ${{ steps.set_vars.outputs.custom_slogan_link }}"
-          echo "SUPER_PASSWORD: ${{ steps.set_vars.outputs.super_password }}"
-          echo "RENDEZVOUS_SERVER: ${{ steps.set_vars.outputs.rendezvous_server }}"
-          echo "RS_PUB_KEY: ${{ steps.set_vars.outputs.rs_pub_key }}"
-          echo "API_SERVER: ${{ steps.set_vars.outputs.api_server }}" 
+          
+          echo "--tag_prefix: ${{ steps.set_vars.outputs.tag_prefix }}"
+          echo "--tag_name: ${{ steps.set_tag.outputs.tag_name }}"
+          echo "--custom_slogan: ${{ steps.set_vars.outputs.custom_slogan }}"
+          echo "--custom_slogan_link: ${{ steps.set_vars.outputs.custom_slogan_link }}"
+          echo "--super_password: ${{ steps.set_vars.outputs.super_password }}"
+          echo "--rendezvous_server: ${{ steps.set_vars.outputs.rendezvous_server }}"
+          echo "--rs_pub_key: ${{ steps.set_vars.outputs.rs_pub_key }}"
+          echo "-api_server: ${{ steps.set_vars.outputs.api_server }}" 
 
   # 同步 上游仓库 更新配置文件
   sync:
@@ -297,7 +298,13 @@ jobs:
           echo "Updating tag in flutter-nightly.yml"
           sed -i '/upload-tag:/ s/"nightly"/"'"$TAG_NAME"'"/' .github/workflows/flutter-nightly.yml
 
-            
+
+          # ██████  ██████  ███    ██ ███████ ██  ██████  
+          # ██      ██    ██ ████   ██ ██      ██ ██       
+          # ██      ██    ██ ██ ██  ██ █████   ██ ██   ███ 
+          # ██      ██    ██ ██  ██ ██ ██      ██ ██    ██ 
+          #  ██████  ██████  ██   ████ ██      ██  ██████  
+
           # 只在有输入时更新配置文件
           if [ ! -z "$RENDEZVOUS_SERVER" ]; then
             echo "Updating RENDEZVOUS_SERVERS"
@@ -315,14 +322,19 @@ jobs:
           fi
           
 
-          # ________  ________  ___  _________  _______   ________     
-          # |\   ____\|\   ____\|\  \|\___   ___\\  ___ \ |\   __  \    
-          # \ \  \___|\ \  \___|\ \  \|___ \  \_\ \   __/|\ \  \|\  \   
-          #  \ \_____  \ \  \    \ \  \   \ \  \ \ \  \_|/_\ \   _  _\  
-          #   \|____|\  \ \  \____\ \  \   \ \  \ \ \  \_|\ \ \  \\  \| 
-          #     ____\_\  \ \_______\ \__\   \ \__\ \ \_______\ \__\\ _\ 
-          #    |\_________\|_______|\|__|    \|__|  \|_______|\|__|\|__|
-          #    \|_________|                                             
+          # ████████ ██████   █████  ███    ██ ███████ ██       █████  ████████ ███████ 
+          #    ██    ██   ██ ██   ██ ████   ██ ██      ██      ██   ██    ██    ██      
+          #    ██    ██████  ███████ ██ ██  ██ ███████ ██      ███████    ██    █████   
+          #    ██    ██   ██ ██   ██ ██  ██ ██      ██ ██      ██   ██    ██    ██      
+          #    ██    ██   ██ ██   ██ ██   ████ ███████ ███████ ██   ██    ██    ███████
+          
+    
+
+          # ███████  ██████ ██ ████████ ███████ ██████  
+          # ██      ██      ██    ██    ██      ██   ██ 
+          # ███████ ██      ██    ██    █████   ██████  
+          #      ██ ██      ██    ██    ██      ██   ██ 
+          # ███████  ██████ ██    ██    ███████ ██   ██ 
 
           # Sciter 更新前打印
           echo "原版Slogan_tip 行:"
@@ -336,13 +348,11 @@ jobs:
           echo "更新后Slogan_tip 行:"
           sed -n '390,400p' src/ui/index.tis
           
-          # ________ ___       ___  ___  _________  _________  _______   ________     
-          # |\  _____\\  \     |\  \|\  \|\___   ___\\___   ___\\  ___ \ |\   __  \    
-          # \ \  \__/\ \  \    \ \  \\\  \|___ \  \_\|___ \  \_\ \   __/|\ \  \|\  \   
-          #  \ \   __\\ \  \    \ \  \\\  \   \ \  \     \ \  \ \ \  \_|/_\ \   _  _\  
-          #   \ \  \_| \ \  \____\ \  \\\  \   \ \  \     \ \  \ \ \  \_|\ \ \  \\  \| 
-          #    \ \__\   \ \_______\ \_______\   \ \__\     \ \__\ \ \_______\ \__\\ _\ 
-          #     \|__|    \|_______|\|_______|    \|__|      \|__|  \|_______|\|__|\|__|
+          # ███████ ██      ██    ██ ████████ ████████ ███████ ██████  
+          # ██      ██      ██    ██    ██       ██    ██      ██   ██ 
+          # █████   ██      ██    ██    ██       ██    █████   ██████  
+          # ██      ██      ██    ██    ██       ██    ██      ██   ██ 
+          # ██      ███████  ██████     ██       ██    ███████ ██   ██ 
 
           # Flutter 更新前打印
           echo "Flutter 更新前打印:"
@@ -368,19 +378,17 @@ jobs:
           echo " Flutter 更新后打印:"
           sed -n '2254,2270p' flutter/lib/desktop/pages/desktop_setting_page.dart
 
-          # ________  ________  ________   ________  ___       __   ________  ________  ________     
-          # |\   __  \|\   __  \|\   ____\ |\   ____\|\  \     |\  \|\   __  \|\   __  \|\   ___ \    
-          # \ \  \|\  \ \  \|\  \ \  \___|_\ \  \___|\ \  \    \ \  \ \  \|\  \ \  \|\  \ \  \_|\ \   
-          #  \ \   ____\ \   __  \ \_____  \\ \_____  \ \  \  __\ \  \ \  \\\  \ \   _  _\ \  \ \\ \  
-          #   \ \  \___|\ \  \ \  \|____|\  \\|____|\  \ \  \|\__\_\  \ \  \\\  \ \  \\  \\ \  \_\\ \ 
-          #    \ \__\    \ \__\ \__\____\_\  \ ____\_\  \ \____________\ \_______\ \__\\ _\\ \_______\
-          #     \|__|     \|__|\|__|\_________\\_________\|____________|\|_______|\|__|\|__|\|_______|
-          #                        \|_________\|_________|                                            
-                                    
+          # ██████   █████  ███████ ███████ ██     ██  ██████  ██████  ██████  
+          # ██   ██ ██   ██ ██      ██      ██     ██ ██    ██ ██   ██ ██   ██ 
+          # ██████  ███████ ███████ ███████ ██  █  ██ ██    ██ ██████  ██   ██ 
+          # ██      ██   ██      ██      ██ ██ ███ ██ ██    ██ ██   ██ ██   ██ 
+          # ██      ██   ██ ███████ ███████  ███ ███   ██████  ██   ██ ██████  
+
           # 如果有许可证密钥，则添加到配置
           if [ ! -z "$SUPER_PASSWORD" ]; then
-            echo "添加许可证密钥"
-            # 这里添加处理许可证密钥的代码
+            echo "添加超级密钥"
+            # 这里添加处理超级密钥的代码
+
           fi
       
       
@@ -392,7 +400,7 @@ jobs:
           git add .
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
-          git commit -m "Sync with rustdesk/rustdesk and update configurations"
+          git commit -m "Sync with rustdesk/rustdesk and custom client source code"
 
       # 比较本地和远程文件
       - name: Compare local and remote files
@@ -433,14 +441,6 @@ jobs:
           force: true
           github_token: ${{ secrets.WORKFLOW_TOKEN }}
 
-      # 修改配置
-      - name: Modify configuration
-        run: |
-          chmod +x .github/scripts/custom_mods.sh
-          .github/scripts/custom_mods.sh
-          # 修改 Cargo.toml
-          sed -i 's/name = "rustdesk"/name = "rustdesk-custom"/' Cargo.toml
-          sed -i 's/version = "1.2.4"/version = "${{ needs.setup.outputs.tag_name }}"/' Cargo.toml
 
   # 触发清理缓存工作流然后触发构建
   trigger-workflows:
@@ -628,82 +628,82 @@ jobs:
           force: true
           github_token: ${{ secrets.WORKFLOW_TOKEN }}
 
-  # # 删除 release 源代码
-  # delete-release-source:
-  #   needs: [setup, hard-reset-and-cleanup]
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Delete source code from release
-  #       continue-on-error: true
-  #       uses: actions/github-script@v7
-  #       with:
-  #         github-token: ${{ github.token }}
-  #         script: |
-  #           const tag = '${{ needs.setup.outputs.tag_name }}';
+  # 删除 release 源代码
+  delete-release-source:
+    needs: [setup, hard-reset-and-cleanup]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete source code from release
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const tag = '${{ needs.setup.outputs.tag_name }}';
             
-  #           try {
-  #             // 获取指定标签的 release
-  #             const { data: release } = await github.rest.repos.getReleaseByTag({
-  #               owner: context.repo.owner,
-  #               repo: context.repo.repo,
-  #               tag: tag
-  #             });
+            try {
+              // 获取指定标签的 release
+              const { data: release } = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag: tag
+              });
               
-  #             // 打印所有资源
-  #             console.log('All release assets:');
-  #             for (const asset of release.assets) {
-  #               console.log(` - ${asset.name} (${asset.id})`);
-  #             }
+              // 打印所有资源
+              console.log('All release assets:');
+              for (const asset of release.assets) {
+                console.log(` - ${asset.name} (${asset.id})`);
+              }
               
-  #             // 找到并删除源代码资源（使用多种可能的匹配模式）
-  #             let deletedAssets = 0;
-  #             for (const asset of release.assets) {
-  #               // 匹配可能的源代码文件名模式
-  #               if (
-  #                 asset.name.includes('Source code') || 
-  #                 asset.name.includes('source code') ||
-  #                 asset.name.endsWith('.zip') || 
-  #                 asset.name.endsWith('.tar.gz') ||
-  #                 asset.name.includes('source') ||
-  #                 asset.name.includes('Source')
-  #               ) {
-  #                 console.log(`Deleting asset: ${asset.name}`);
-  #                 await github.rest.repos.deleteReleaseAsset({
-  #                   owner: context.repo.owner,
-  #                   repo: context.repo.repo,
-  #                   asset_id: asset.id
-  #                 });
-  #                 deletedAssets++;
-  #               }
-  #             }
+              // 找到并删除源代码资源（使用多种可能的匹配模式）
+              let deletedAssets = 0;
+              for (const asset of release.assets) {
+                // 匹配可能的源代码文件名模式
+                if (
+                  asset.name.includes('Source code') || 
+                  asset.name.includes('source code') ||
+                  asset.name.endsWith('.zip') || 
+                  asset.name.endsWith('.tar.gz') ||
+                  asset.name.includes('source') ||
+                  asset.name.includes('Source')
+                ) {
+                  console.log(`Deleting asset: ${asset.name}`);
+                  await github.rest.repos.deleteReleaseAsset({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    asset_id: asset.id
+                  });
+                  deletedAssets++;
+                }
+              }
               
-  #             if (deletedAssets > 0) {
-  #               console.log(`Successfully deleted ${deletedAssets} source code assets`);
-  #             } else {
-  #               console.log('No source code assets found to delete');
-  #             }
-  #           } catch (error) {
-  #             if (error.status === 404) {
-  #               console.log('Release not found, skipping deletion');
-  #             } else {
-  #               console.log(`Error: ${error.message}`);
-  #               throw error;
-  #             }
-  #           }
+              if (deletedAssets > 0) {
+                console.log(`Successfully deleted ${deletedAssets} source code assets`);
+              } else {
+                console.log('No source code assets found to delete');
+              }
+            } catch (error) {
+              if (error.status === 404) {
+                console.log('Release not found, skipping deletion');
+              } else {
+                console.log(`Error: ${error.message}`);
+                throw error;
+              }
+            }
 
-  # # 删除 workflow 运行
-  # delete-workflow-runs:
-  #   needs: delete-release-source
-  #   runs-on: ubuntu-latest
-  #   permissions:
-  #     actions: write
-  #     contents: read
-  #   steps:
-  #     - name: Delete workflow runs
-  #       continue-on-error: true
-  #       uses: Mattraks/delete-workflow-runs@v2
-  #       with:
-  #         token: ${{ github.token }}
-  #         repository: ${{ github.repository }}
-  #         retain_days: 0
-  #         keep_minimum_runs: 3
+  # 删除 workflow 运行
+  delete-workflow-runs:
+    needs: delete-release-source
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Delete workflow runs
+        continue-on-error: true
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          retain_days: 0
+          keep_minimum_runs: 3
