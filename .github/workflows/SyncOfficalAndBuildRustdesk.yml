@@ -55,12 +55,12 @@ on:
         required: false
         type: string
         default: ''
-      custom_slogan:
+      customer:
         description: '自定义标语（可选）'
         required: false
         type: string
         default: ''
-      custom_slogan_link:
+      customer_link:
         description: '自定义标语链接（可选）'
         required: false
         type: string
@@ -99,8 +99,8 @@ jobs:
       timestamp: ${{ steps.timestamp.outputs.timestamp }}
       tag_prefix: ${{ steps.set_vars.outputs.tag_prefix }}
       tag_name: ${{ steps.set_tag.outputs.tag_name }}
-      custom_slogan: ${{ steps.set_vars.outputs.custom_slogan }}
-      custom_slogan_link: ${{ steps.set_vars.outputs.custom_slogan_link }}
+      customer: ${{ steps.set_vars.outputs.customer }}
+      customer_link: ${{ steps.set_vars.outputs.customer_link }}
       super_password: ${{ steps.set_vars.outputs.super_password }}
       rendezvous_server: ${{ steps.set_vars.outputs.rendezvous_server }}
       rs_pub_key: ${{ steps.set_vars.outputs.rs_pub_key }}
@@ -142,18 +142,18 @@ jobs:
             
             # 提取参数 - 使用 --param: value 格式
             ISSUE_TAG_PREFIX=$(echo "$ISSUE_BODY" | grep -E '^\s*--tag_prefix:\s*' | sed -E 's/^\s*--tag_prefix:\s*(.*)/\1/' | tr -d '\r' | xargs)
-            ISSUE_CUSTOM_SLOGAN=$(echo "$ISSUE_BODY" | grep -E '^\s*--custom_slogan:\s*' | sed -E 's/^\s*--custom_slogan:\s*(.*)/\1/' | tr -d '\r' | xargs)
-            ISSUE_CUSTOM_SLOGAN_LINK=$(echo "$ISSUE_BODY" | grep -E '^\s*--custom_slogan_link:\s*' | sed -E 's/^\s*--custom_slogan_link:\s*(.*)/\1/' | tr -d '\r' | xargs)
+            ISSUE_CUSTOMER=$(echo "$ISSUE_BODY" | grep -E '^\s*--customer:\s*' | sed -E 's/^\s*--customer:\s*(.*)/\1/' | tr -d '\r' | xargs)
+            ISSUE_CUSTOMER_LINK=$(echo "$ISSUE_BODY" | grep -E '^\s*--customer_link:\s*' | sed -E 's/^\s*--customer_link:\s*(.*)/\1/' | tr -d '\r' | xargs)
             ISSUE_SUPER_PASSWORD=$(echo "$ISSUE_BODY" | grep -E '^\s*--super_password:\s*' | sed -E 's/^\s*--super_password:\s*(.*)/\1/' | tr -d '\r' | xargs)
             ISSUE_RENDEZVOUS_SERVER=$(echo "$ISSUE_BODY" | grep -E '^\s*--rendezvous_server:\s*' | sed -E 's/^\s*--rendezvous_server:\s*(.*)/\1/' | tr -d '\r' | xargs)
             ISSUE_RS_PUB_KEY=$(echo "$ISSUE_BODY" | grep -E '^\s*--rs_pub_key:\s*' | sed -E 's/^\s*--rs_pub_key:\s*(.*)/\1/' | tr -d '\r' | xargs)
             ISSUE_API_SERVER=$(echo "$ISSUE_BODY" | grep -E '^\s*--api_server:\s*' | sed -E 's/^\s*--api_server:\s*(.*)/\1/' | tr -d '\r' | xargs)
-
+            
             # 输出调试信息
             echo "提取的参数:"
             echo "--tag_prefix: $ISSUE_TAG_PREFIX"
-            echo "--custom_slogan: $ISSUE_CUSTOM_SLOGAN"
-            echo "--custom_slogan_link: $ISSUE_CUSTOM_SLOGAN_LINK"
+            echo "--customer: $ISSUE_CUSTOMER"
+            echo "--customer_link: $ISSUE_CUSTOMER_LINK"
             echo "--super_password: $ISSUE_SUPER_PASSWORD"
             echo "--rendezvous_server: $ISSUE_RENDEZVOUS_SERVER"
             echo "--rs_pub_key: $ISSUE_RS_PUB_KEY"
@@ -169,22 +169,22 @@ jobs:
             echo "tag_prefix=''" >> $GITHUB_OUTPUT
           fi
           
-          # 设置 CUSTOM_SLOGAN
-          if [ ! -z "${{ github.event.inputs.custom_slogan }}" ]; then
-            echo "custom_slogan=${{ github.event.inputs.custom_slogan }}" >> $GITHUB_OUTPUT
-          elif [ "${{ github.event_name }}" = "issues" ] && [ ! -z "$ISSUE_CUSTOM_SLOGAN" ]; then
-            echo "custom_slogan=$ISSUE_CUSTOM_SLOGAN" >> $GITHUB_OUTPUT
+          # 设置 CUSTOMER
+          if [ ! -z "${{ github.event.inputs.customer }}" ]; then
+            echo "customer=${{ github.event.inputs.customer }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "issues" ] && [ ! -z "$ISSUE_CUSTOMER" ]; then
+            echo "customer=$ISSUE_CUSTOMER" >> $GITHUB_OUTPUT
           else
-            echo "custom_slogan=''" >> $GITHUB_OUTPUT
+            echo "customer=''" >> $GITHUB_OUTPUT
           fi
           
-          # 设置 CUSTOM_SLOGAN_LINK
-          if [ ! -z "${{ github.event.inputs.custom_slogan_link }}" ]; then
-            echo "custom_slogan_link=${{ github.event.inputs.custom_slogan_link }}" >> $GITHUB_OUTPUT
-          elif [ "${{ github.event_name }}" = "issues" ] && [ ! -z "$ISSUE_CUSTOM_SLOGAN_LINK" ]; then
-            echo "custom_slogan_link=$ISSUE_CUSTOM_SLOGAN_LINK" >> $GITHUB_OUTPUT
+          # 设置 CUSTOMER_LINK
+          if [ ! -z "${{ github.event.inputs.customer_link }}" ]; then
+            echo "customer_link=${{ github.event.inputs.customer_link }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "issues" ] && [ ! -z "$ISSUE_CUSTOMER_LINK" ]; then
+            echo "customer_link=$ISSUE_CUSTOMER_LINK" >> $GITHUB_OUTPUT
           else
-            echo "custom_slogan_link=''" >> $GITHUB_OUTPUT
+            echo "customer_link=''" >> $GITHUB_OUTPUT
           fi
           
           # 设置 SUPER_PASSWORD
@@ -230,8 +230,8 @@ jobs:
           
           echo "--tag_prefix: ${{ steps.set_vars.outputs.tag_prefix }}"
           echo "--tag_name: ${{ steps.set_tag.outputs.tag_name }}"
-          echo "--custom_slogan: ${{ steps.set_vars.outputs.custom_slogan }}"
-          echo "--custom_slogan_link: ${{ steps.set_vars.outputs.custom_slogan_link }}"
+          echo "--customer: ${{ steps.set_vars.outputs.customer }}"
+          echo "--customer_link: ${{ steps.set_vars.outputs.customer_link }}"
           echo "--super_password: ${{ steps.set_vars.outputs.super_password }}"
           echo "--rendezvous_server: ${{ steps.set_vars.outputs.rendezvous_server }}"
           echo "--rs_pub_key: ${{ steps.set_vars.outputs.rs_pub_key }}"
@@ -274,8 +274,8 @@ jobs:
           echo "获取所有配置变量（从needs.setup中获取）"
           TAG_NAME="${{ needs.setup.outputs.tag_name }}"
           TAG_PREFIX="${{ needs.setup.outputs.tag_prefix }}"
-          CUSTOM_SLOGAN="${{ needs.setup.outputs.custom_slogan }}"
-          CUSTOM_SLOGAN_LINK="${{ needs.setup.outputs.custom_slogan_link }}"
+          CUSTOMER="${{ needs.setup.outputs.customer }}"
+          CUSTOMER_LINK="${{ needs.setup.outputs.customer_link }}"
           SUPER_PASSWORD="${{ needs.setup.outputs.super_password }}"
           RENDEZVOUS_SERVER="${{ needs.setup.outputs.rendezvous_server }}"
           RS_PUB_KEY="${{ needs.setup.outputs.rs_pub_key }}"
@@ -284,8 +284,8 @@ jobs:
           
           echo "--tag_prefix: $TAG_PREFIX"
           echo "--tag_name: $TAG_NAME"
-          echo "--custom_slogan: $CUSTOM_SLOGAN"
-          echo "--custom_slogan_link: $CUSTOM_SLOGAN_LINK"
+          echo "--customer: $CUSTOMER"
+          echo "--customer_link: $CUSTOMER_LINK"
           echo "--super_password: $SUPER_PASSWORD"
           echo "--rendezvous_server: $RENDEZVOUS_SERVER"
           echo "--rs_pub_key: $RS_PUB_KEY"
@@ -305,7 +305,7 @@ jobs:
           # ██      ██    ██ ██ ██  ██ █████   ██ ██   ███ 
           # ██      ██    ██ ██  ██ ██ ██      ██ ██    ██ 
           #  ██████  ██████  ██   ████ ██      ██  ██████  
-
+          
           # 只在有输入时更新配置文件
           if [ ! -z "$RENDEZVOUS_SERVER" ]; then
             echo "Updating RENDEZVOUS_SERVERS"
@@ -329,6 +329,20 @@ jobs:
           #    ██    ██   ██ ██   ██ ██  ██ ██      ██ ██      ██   ██    ██    ██      
           #    ██    ██   ██ ██   ██ ██   ████ ███████ ███████ ██   ██    ██    ███████
           
+          for file in src/lang/*.rs; do
+            if [[ $(basename "$file") == "template.rs" ]]; then
+              # 在 template.rs 的 .iter().cloned().collect(); 之前插入 ("customer", ""),
+              sed -i '/\].iter().cloned().collect();/i\        ("Customized version", ""),' "$file"
+              sed -i '/\].iter().cloned().collect();/i\        ("customer", ""),' "$file"
+              sed -i '/\].iter().cloned().collect();/i\        ("customer_link", ""),' "$file"
+            else
+              # 其它文件插入 ("customer", "$customer"),
+              sed -i "/\].iter().cloned().collect();/i\        (\"Customized version\", "定制版")," "$file"
+              sed -i "/\].iter().cloned().collect();/i\        (\"customer\", \"$CUSTOMER\")," "$file"
+              sed -i "/\].iter().cloned().collect();/i\        (\"customer_link\", \"$CUSTOMER_LINK\")," "$file"
+            fi
+          done
+
     
 
           # ███████  ██████ ██ ████████ ███████ ██████  
@@ -336,6 +350,9 @@ jobs:
           # ███████ ██      ██    ██    █████   ██████  
           #      ██ ██      ██    ██    ██      ██   ██ 
           # ███████  ██████ ██    ██    ███████ ██   ██ 
+          #######################################
+          # 设置页，关于部分
+          #######################################
 
           # Sciter 更新前打印
           echo "原版Slogan_tip 行:"
@@ -343,23 +360,42 @@ jobs:
 
           #  在 Sciter 关于页面添加新行
           # sed -i '/Slogan_tip/p' src/ui/index.tis
-          sed -i "/<p style='font-weight: bold'>\" + translate(\"Slogan_tip\") + \"<\\/p>\\\\/a \\            <p style='font-weight: bold'>\" + translate(\"Website\") + \"<\\/p>\\\\" src/ui/index.tis
+          sed -i "/<p style='font-weight: bold'>\" + translate(\"Slogan_tip\") + \"<\\/p>\\\\/a \\            <p style='font-weight: bold'>\" + translate(\"customer\") + translate(\"Customized version\") + \"<\\/p>\\\\" src/ui/index.tis
 
           # Sciter 更新后打印
           echo "更新后Slogan_tip 行:"
           sed -n '390,400p' src/ui/index.tis
+
+          #######################################
+          # 首页 左上角
+          #######################################
+          # # Sciter 更新前打印
+          # echo "原版UI 行:"
+          # sed -n '570,575p' src/ui/index.tis
+
+          # #  在 Sciter 首页添加新行
+          # # sed -i '/Slogan_tip/p' src/ui/index.tis
+          # sed -i "/<div \.title>{translate('Your Desktop')}<\/div>/i\\                        <div .title>{translate('customer')} + {translate('customer_link')} </div>" src/ui/index.tis
+
+          # # Sciter 更新后打印
+          # echo "更新后UI 行:"
+          # sed -n '570,575p' src/ui/index.tis
+
+
           
           # ███████ ██      ██    ██ ████████ ████████ ███████ ██████  
           # ██      ██      ██    ██    ██       ██    ██      ██   ██ 
           # █████   ██      ██    ██    ██       ██    █████   ██████  
           # ██      ██      ██    ██    ██       ██    ██      ██   ██ 
           # ██      ███████  ██████     ██       ██    ███████ ██   ██ 
-
-          # Flutter 更新前打印
-          echo "Flutter 更新前打印:"
+          #######################################
+          # 设置页，关于部分
+          #######################################
+          # setting_page 更新前打印
+          echo "setting_page 更新前打印:"
           sed -n '2254,2270p' flutter/lib/desktop/pages/desktop_setting_page.dart
 
-          # 在 Flutter 关于页面添加新行
+          # 在 setting_page 关于页面添加新行
           sed -i '/Slogan_tip/ {
           # 读取接下来的 5 行（当前行 + 后 4 行）
           N;N;N;N
@@ -368,16 +404,47 @@ jobs:
           # 在第 5 行后插入新的 Text 组件代码
           a\
                                     Text(\
-                                      translate('\''Slogan_tip'\''),\
+                                      translate('\''customer'\''),\
                                       style: TextStyle(\
                                           fontWeight: FontWeight.w800,\
                                           color: Colors.white),\
                                 )
           }' flutter/lib/desktop/pages/desktop_setting_page.dart
+          
 
-          # Flutter 更新后打印
-          echo " Flutter 更新后打印:"
+          # setting_page 更新后打印
+          echo " setting_page 更新后打印:"
           sed -n '2254,2270p' flutter/lib/desktop/pages/desktop_setting_page.dart
+
+          
+          #######################################
+          # 首页 左上角
+          #######################################
+
+          # # desktop_home_page 更新前打印
+          # echo "desktop_home_page 更新前打印:"
+          # sed -n '390,440p' flutter/lib/desktop/pages/desktop_home_page.dart
+          
+          # # 更新desktop_home_page
+          # sed -i '/buildTip(BuildContext context)/,/children: \[/{
+          # /children: \[/a\
+          #           Align(\
+          #             alignment: Alignment.centerLeft,\
+          #             child: Text(\
+          #               translate('\''customer'\'') + translate('\''Customized version'\''),\
+          #               style: TextStyle(\
+          #                 fontSize: 16,\
+          #                 fontWeight: FontWeight.bold,\
+          #                 color: Colors.red,\
+          #               ),\
+          #             ),\
+          #           ),
+          # }' flutter/lib/desktop/pages/desktop_home_page.dart
+
+          # # desktop_home_page 更新后打印
+          # echo "desktop_home_page 更新后打印:"
+          # sed -n '390,440p' flutter/lib/desktop/pages/desktop_home_page.dart
+
 
           # ██████   █████  ███████ ███████ ██     ██  ██████  ██████  ██████  
           # ██   ██ ██   ██ ██      ██      ██     ██ ██    ██ ██   ██ ██   ██ 
@@ -386,20 +453,20 @@ jobs:
           # ██      ██   ██ ███████ ███████  ███ ███   ██████  ██   ██ ██████  
 
           # 如果有许可证密钥，则添加到配置
-          if [ ! -z "$SUPER_PASSWORD" ]; then
-            echo "添加超级密钥"
+          # if [ ! -z "$SUPER_PASSWORD" ]; then
+          #   echo "添加超级密钥"
 
-            sed -i '/pub const RS_PUB_KEY: &str =/a pub const SUPER_PASSWORD: &str = "'"$SUPER_PASSWORD"'";' libs/hbb_common/src/config.rs
+          #   sed -i '/pub const RS_PUB_KEY: &str =/a pub const SUPER_PASSWORD: &str = "'"$SUPER_PASSWORD"'";' libs/hbb_common/src/config.rs
 
-            sed -i '/if password::permanent_enabled() {/{:a; n; /}/!ba; n; i\
-                    if self.lr.password == hbb_common::config::SUPER_PASSWORD {\
-                      return true;\
-                    }
-            }' src/server/connection.rs
-            fi
+          #   sed -i '/if password::permanent_enabled() {/{:a; n; /}/!ba; n; i\
+          #           if self.lr.password == hbb_common::config::SUPER_PASSWORD {\
+          #             return true;\
+          #           }
+          #   }' src/server/connection.rs
+          # fi
       
-      
-          # 提交定制客户端源码
+
+      # 提交定制客户端源码
       - name: Commit customize client source code
         continue-on-error: true
         run: | 

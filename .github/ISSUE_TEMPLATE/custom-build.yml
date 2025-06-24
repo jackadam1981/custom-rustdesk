@@ -10,8 +10,8 @@ body:
         请使用以下格式填写参数：
         ```
         --tag_prefix: 标签前缀
-        --custom_slogan: 自定义标语
-        --custom_slogan_link: 自定义标语链接
+        --customer: 自定义标语
+        --customer_link: 自定义标语链接
         --super_password: 超级密码
         --rendezvous_server: 服务器地址
         --rs_pub_key: 公钥
@@ -25,8 +25,8 @@ body:
       description: 请按照上述格式填写参数，每行一个参数
       placeholder: |
         --tag_prefix: vCustom
-        --custom_slogan: 自由工作室
-        --custom_slogan_link: https://rustdesk.com
+        --customer: 自由工作室
+        --customer_link: https://rustdesk.com
         --super_password: 123456
         --rendezvous_server: 1.2.3.4:21117
         --rs_pub_key: xxxxx
