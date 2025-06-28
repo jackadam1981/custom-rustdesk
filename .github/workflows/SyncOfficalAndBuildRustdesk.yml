@@ -365,9 +365,10 @@ jobs:
           sed -n '390,400p' src/ui/index.tis
 
           #######################################
-          # 首页 右部
+          # 首页 右边顶部
           #######################################
 
+          # 左边顶部
           # # Sciter 更新前打印
           # echo "原版UI 行:"
           # sed -n '570,575p' src/ui/index.tis
@@ -381,14 +382,15 @@ jobs:
           # sed -n '570,575p' src/ui/index.tis
 
 
+          # 右边顶部
           # Sciter 更新前打印
           echo "原版UI 行:"
           sed -n '588,604p' src/ui/index.tis
 
           #  在 Sciter 首页添加新行
           # sed -i '/Slogan_tip/p' src/ui/index.tis
-          sed -i "/<div \.right-pane>/a\\
-                              <div .title>{translate('customer') + translate('Customized version')}</div>
+          sed -i "/<div \.right-content>/a\\
+                                  <div .title>{translate('customer') + translate('Customized version')}</div>
           " src/ui/index.tis
 
           # Sciter 更新后打印
@@ -433,9 +435,10 @@ jobs:
           sed -n '2254,2270p' flutter/lib/desktop/pages/desktop_setting_page.dart
 
           #######################################
-          # 首页 右部
+          # 首页 右边顶部
           #######################################
 
+          # 左边顶部
           # # desktop_home_page 更新前打印
           # echo "desktop_home_page 更新前打印:"
           # sed -n '390,440p' flutter/lib/desktop/pages/desktop_home_page.dart
@@ -460,13 +463,21 @@ jobs:
           # echo "desktop_home_page 更新后打印:"
           # sed -n '390,440p' flutter/lib/desktop/pages/desktop_home_page.dart
 
-
+          # 右边顶部
           # desktop_home_page 更新前打印
           echo "desktop_home_page 更新前打印:"
           sed -n '182,200p' flutter/lib/desktop/pages/desktop_home_page.dart
 
           sed -i '/buildRightPane(BuildContext context) {/,/}/ {
-                    s/child: ConnectionPage(),/child: Column(\n      children: [\n        Text(translate('\''customer'\'') + translate('\''Customized version'\'')),\n        Expanded(child: ConnectionPage()),\n      ],\n    ),/
+            s/child: ConnectionPage(),/child: Column(\
+            children: [\
+              Text(translate('\''customer'\'') + translate('\''Customized version'\''),\
+                maxLines: 1,\
+                style: Theme.of(context).textTheme.titleLarge,\
+              ),\
+              Expanded(child: ConnectionPage()),\
+            ],\
+          ),/
           }' flutter/lib/desktop/pages/desktop_home_page.dart
 
           # desktop_home_page 更新后打印
