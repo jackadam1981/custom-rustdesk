@@ -367,17 +367,18 @@ jobs:
           #######################################
           # 首页 左上角
           #######################################
-          # # Sciter 更新前打印
-          # echo "原版UI 行:"
-          # sed -n '570,575p' src/ui/index.tis
 
-          # #  在 Sciter 首页添加新行
-          # # sed -i '/Slogan_tip/p' src/ui/index.tis
-          # sed -i "/<div \.title>{translate('Your Desktop')}<\/div>/i\\                        <div .title>{translate('customer')} + {translate('customer_link')} </div>" src/ui/index.tis
+          # Sciter 更新前打印
+          echo "原版UI 行:"
+          sed -n '570,575p' src/ui/index.tis
 
-          # # Sciter 更新后打印
-          # echo "更新后UI 行:"
-          # sed -n '570,575p' src/ui/index.tis
+          #  在 Sciter 首页添加新行
+          # sed -i '/Slogan_tip/p' src/ui/index.tis
+          sed -i "/<div \.title>{translate('Your Desktop')}<\/div>/i\\                        <div .title>{translate('customer')} + {translate('Customized version')} </div>" src/ui/index.tis
+
+          # Sciter 更新后打印
+          echo "更新后UI 行:"
+          sed -n '570,575p' src/ui/index.tis
 
 
 
@@ -394,6 +395,8 @@ jobs:
           echo "setting_page 更新前打印:"
           sed -n '2254,2270p' flutter/lib/desktop/pages/desktop_setting_page.dart
 
+          sed -i "s/translate('Slogan_tip')/translate('Slogan_tip') + '\\\\n'/" flutter/lib/desktop/pages/desktop_setting_page.dart
+
           # 在 setting_page 关于页面添加新行
           sed -i '/Slogan_tip/ {
           # 读取接下来的 5 行（当前行 + 后 4 行）
@@ -402,12 +405,12 @@ jobs:
           s/\(.*\)$/\1,/
           # 在第 5 行后插入新的 Text 组件代码
           a\
-                                    Text(\
-                                      translate('\''customer'\''),\
-                                      style: TextStyle(\
-                                          fontWeight: FontWeight.w800,\
-                                          color: Colors.white),\
-                                )
+                          Text(\
+                            translate('\''customer'\'') + translate('\''Customized version'\''),\
+                            style: TextStyle(\
+                              fontWeight: FontWeight.w800,\
+                              color: Colors.white),\
+                          )
           }' flutter/lib/desktop/pages/desktop_setting_page.dart
 
           # setting_page 更新后打印
@@ -418,29 +421,29 @@ jobs:
           # 首页 左上角
           #######################################
 
-          # # desktop_home_page 更新前打印
-          # echo "desktop_home_page 更新前打印:"
-          # sed -n '390,440p' flutter/lib/desktop/pages/desktop_home_page.dart
+          # desktop_home_page 更新前打印
+          echo "desktop_home_page 更新前打印:"
+          sed -n '390,440p' flutter/lib/desktop/pages/desktop_home_page.dart
 
-          # # 更新desktop_home_page
-          # sed -i '/buildTip(BuildContext context)/,/children: \[/{
-          # /children: \[/a\
-          #           Align(\
-          #             alignment: Alignment.centerLeft,\
-          #             child: Text(\
-          #               translate('\''customer'\'') + translate('\''Customized version'\''),\
-          #               style: TextStyle(\
-          #                 fontSize: 16,\
-          #                 fontWeight: FontWeight.bold,\
-          #                 color: Colors.red,\
-          #               ),\
-          #             ),\
-          #           ),
-          # }' flutter/lib/desktop/pages/desktop_home_page.dart
+          # 更新desktop_home_page
+          sed -i '/buildTip(BuildContext context)/,/children: \[/{
+            /children: \[/a\
+          Align(\
+            alignment: Alignment.centerLeft,\
+            child: Text(\
+              translate('\''customer'\'') + translate('\''Customized version'\''),\
+              style: TextStyle(\
+                fontSize: 16,\
+                fontWeight: FontWeight.bold,\
+                color: Colors.red,\
+              ),\
+            ),\
+          ),
+          }' flutter/lib/desktop/pages/desktop_home_page.dart
 
-          # # desktop_home_page 更新后打印
-          # echo "desktop_home_page 更新后打印:"
-          # sed -n '390,440p' flutter/lib/desktop/pages/desktop_home_page.dart
+          # desktop_home_page 更新后打印
+          echo "desktop_home_page 更新后打印:"
+          sed -n '390,440p' flutter/lib/desktop/pages/desktop_home_page.dart
 
 
           # ██████   █████  ███████ ███████ ██     ██  ██████  ██████  ██████  
