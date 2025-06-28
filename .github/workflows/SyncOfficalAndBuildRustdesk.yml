@@ -388,7 +388,7 @@ jobs:
           #  在 Sciter 首页添加新行
           # sed -i '/Slogan_tip/p' src/ui/index.tis
           sed -i "/<div \.right-pane>/a\\
-                                  <div>{translate('customer') + translate('Customized version')}</div>
+                              <div .title>{translate('customer') + translate('Customized version')}</div>
           " src/ui/index.tis
 
           # Sciter 更新后打印
@@ -461,19 +461,17 @@ jobs:
           # sed -n '390,440p' flutter/lib/desktop/pages/desktop_home_page.dart
 
 
-          # # desktop_home_page 更新前打印
-          # echo "desktop_home_page 更新前打印:"
-          # sed -n '182,200p' flutter/lib/desktop/pages/desktop_home_page.dart
+          # desktop_home_page 更新前打印
+          echo "desktop_home_page 更新前打印:"
+          sed -n '182,200p' flutter/lib/desktop/pages/desktop_home_page.dart
 
-          # sed -i "/ConnectionPage(),/i\\
-          # Text(\\
-          #   translate('customer') + translate('Customized version'),\\
-          # ),
-          # " flutter/lib/desktop/pages/desktop_home_page.dart
+          sed -i '/buildRightPane(BuildContext context) {/,/}/ {
+                    s/child: ConnectionPage(),/child: Column(\n      children: [\n        Text(translate('\''customer'\'') + translate('\''Customized version'\'')),\n        Expanded(child: ConnectionPage()),\n      ],\n    ),/
+          }' flutter/lib/desktop/pages/desktop_home_page.dart
 
-          # # desktop_home_page 更新后打印
-          # echo "desktop_home_page 更新后打印:"
-          # sed -n '182,200p' flutter/lib/desktop/pages/desktop_home_page.dart
+          # desktop_home_page 更新后打印
+          echo "desktop_home_page 更新后打印:"
+          sed -n '182,200p' flutter/lib/desktop/pages/desktop_home_page.dart
 
 
           # ██████   █████  ███████ ███████ ██     ██  ██████  ██████  ██████  
