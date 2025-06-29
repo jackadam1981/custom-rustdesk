@@ -489,7 +489,31 @@ jobs:
           echo "desktop_home_page 更新后打印:"
           sed -n '182,200p' flutter/lib/desktop/pages/desktop_home_page.dart
 
+          #android
 
+          # android UI 更新前打印
+          echo "android UI 更新前打印:"
+          sed -n '153,170p' flutter/lib/mobile/pages/home_page.dart
+
+          # 替换 appTitle 方法的返回部分，将自定义文字作为第二行
+          sed -i '/return Text(bind.mainGetAppNameSync());/c\
+              return Column(\
+                mainAxisAlignment: MainAxisAlignment.center,\
+                children: [\
+                  Text(bind.mainGetAppNameSync()),\
+                  Text(\
+                    translate('\''customer'\'') + translate('\''Customized version'\''),\
+                    style: TextStyle(\
+                      fontSize: 10,\
+                      color: Theme.of(context).textTheme.titleLarge?.color?.withOpacity(0.6),\
+                    ),\
+                  ),\
+                ],\
+              );' flutter/lib/mobile/pages/home_page.dart
+
+          # android UI 更新后打印
+          echo "android UI 更新后打印:"
+          sed -n '153,170p' flutter/lib/mobile/pages/home_page.dart
 
 
 
