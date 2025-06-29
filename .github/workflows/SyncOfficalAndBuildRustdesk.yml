@@ -17,12 +17,12 @@ run-name: ${{ github.actor }} building at ${{ github.event.repository.name }} �
 # 2. 环境变量配置
 #    ------------
 #    在仓库的 Settings -> Secrets and variables -> Actions 中添加：
-#
+#    
 #    RUSTDESK 配置：
 #    - RENDEZVOUS_SERVER: 服务器地址
 #    - RS_PUB_KEY: 公钥
 #    - API_SERVER: API 服务器地址（可选）
-#
+#    
 #    GitHub 配置：
 #    - WORKFLOW_TOKEN: GitHub 个人访问令牌（需要 workflow 权限）
 #
@@ -121,7 +121,7 @@ jobs:
             # 从Issue中提取标签前缀
             TAG_PREFIX=$(echo "${{ github.event.issue.body }}" | grep -E '^\s*--tag_prefix:\s*' | sed -E 's/^\s*--tag_prefix:\s*(.*)/\1/' | tr -d '\r' | xargs)
           fi
-
+          
           if [ ! -z "$TAG_PREFIX" ]; then
             TAG_NAME="${TAG_PREFIX}_${TIMESTAMP}"
           else
@@ -158,7 +158,7 @@ jobs:
             echo "--rs_pub_key: $ISSUE_RS_PUB_KEY"
             echo "--api_server: $ISSUE_API_SERVER"
           fi
-
+          
           # 设置 TAG_PREFIX
           if [ ! -z "${{ github.event.inputs.tag_prefix }}" ]; then
             echo "tag_prefix=${{ github.event.inputs.tag_prefix }}" >> $GITHUB_OUTPUT
@@ -167,7 +167,7 @@ jobs:
           else
             echo "tag_prefix=''" >> $GITHUB_OUTPUT
           fi
-
+          
           # 设置 CUSTOMER
           if [ ! -z "${{ github.event.inputs.customer }}" ]; then
             echo "customer=${{ github.event.inputs.customer }}" >> $GITHUB_OUTPUT
@@ -185,7 +185,7 @@ jobs:
           else
             echo "customer_link=''" >> $GITHUB_OUTPUT
           fi
-
+          
           # 设置 SUPER_PASSWORD
           if [ ! -z "${{ github.event.inputs.super_password }}" ]; then
             echo "super_password=${{ github.event.inputs.super_password }}" >> $GITHUB_OUTPUT
@@ -194,7 +194,7 @@ jobs:
           else
             echo "super_password=''" >> $GITHUB_OUTPUT
           fi
-
+          
           # 设置 RENDEZVOUS_SERVER
           if [ ! -z "${{ github.event.inputs.rendezvous_server }}" ]; then
             echo "rendezvous_server=${{ github.event.inputs.rendezvous_server }}" >> $GITHUB_OUTPUT
@@ -203,7 +203,7 @@ jobs:
           else
             echo "rendezvous_server=${{ secrets.RENDEZVOUS_SERVER }}" >> $GITHUB_OUTPUT
           fi
-
+          
           # 设置 RS_PUB_KEY
           if [ ! -z "${{ github.event.inputs.rs_pub_key }}" ]; then
             echo "rs_pub_key=${{ github.event.inputs.rs_pub_key }}" >> $GITHUB_OUTPUT
@@ -212,7 +212,7 @@ jobs:
           else
             echo "rs_pub_key=${{ secrets.RS_PUB_KEY }}" >> $GITHUB_OUTPUT
           fi
-
+          
           # 设置 API_SERVER
           if [ ! -z "${{ github.event.inputs.api_server }}" ]; then
             echo "api_server=${{ github.event.inputs.api_server }}" >> $GITHUB_OUTPUT
@@ -278,7 +278,7 @@ jobs:
           RENDEZVOUS_SERVER="${{ needs.setup.outputs.rendezvous_server }}"
           RS_PUB_KEY="${{ needs.setup.outputs.rs_pub_key }}"
           API_SERVER="${{ needs.setup.outputs.api_server }}"
-
+          
 
           echo "--tag_prefix: $TAG_PREFIX"
           echo "--tag_name: $TAG_NAME"
@@ -303,23 +303,23 @@ jobs:
           # ██      ██    ██ ██ ██  ██ █████   ██ ██   ███ 
           # ██      ██    ██ ██  ██ ██ ██      ██ ██    ██ 
           #  ██████  ██████  ██   ████ ██      ██  ██████  
-
+          
           # 只在有输入时更新配置文件
           if [ ! -z "$RENDEZVOUS_SERVER" ]; then
             echo "Updating RENDEZVOUS_SERVERS"
             sed -i '/^pub const RENDEZVOUS_SERVERS:/c\pub const RENDEZVOUS_SERVERS: \&[&str] = \&["'"$RENDEZVOUS_SERVER"'"];' libs/hbb_common/src/config.rs
           fi
-
+          
           if [ ! -z "$RS_PUB_KEY" ]; then
             echo "Updating RS_PUB_KEY"
             sed -i '/^pub const RS_PUB_KEY:/c\pub const RS_PUB_KEY: \&str = "'"$RS_PUB_KEY"'";' libs/hbb_common/src/config.rs
           fi
-
+          
           if [ ! -z "$API_SERVER" ]; then
             echo "Updating API_SERVER"
             sed -i '/^    pub const OPTION_API_SERVER:/c\    pub const OPTION_API_SERVER: \&str = "'"$API_SERVER"'";' libs/hbb_common/src/config.rs
           fi
-
+          
 
           # ████████ ██████   █████  ███    ██ ███████ ██       █████  ████████ ███████ 
           #    ██    ██   ██ ██   ██ ████   ██ ██      ██      ██   ██    ██    ██      
@@ -365,9 +365,10 @@ jobs:
           sed -n '390,400p' src/ui/index.tis
 
           #######################################
-          # 首页 右部
+          # 首页 右边顶部
           #######################################
 
+          # 左边顶部
           # # Sciter 更新前打印
           # echo "原版UI 行:"
           # sed -n '570,575p' src/ui/index.tis
@@ -381,14 +382,15 @@ jobs:
           # sed -n '570,575p' src/ui/index.tis
 
 
+          # 右边顶部
           # Sciter 更新前打印
           echo "原版UI 行:"
           sed -n '588,604p' src/ui/index.tis
 
           #  在 Sciter 首页添加新行
           # sed -i '/Slogan_tip/p' src/ui/index.tis
-          sed -i "/<div \.right-pane>/a\\
-                              <div .title>{translate('customer') + translate('Customized version')}</div>
+          sed -i "/<div \.right-content>/a\\
+                                  <div .title>{translate('customer') + translate('Customized version')}</div>
           " src/ui/index.tis
 
           # Sciter 更新后打印
@@ -433,9 +435,10 @@ jobs:
           sed -n '2254,2270p' flutter/lib/desktop/pages/desktop_setting_page.dart
 
           #######################################
-          # 首页 右部
+          # 首页 右边顶部
           #######################################
 
+          # 左边顶部
           # # desktop_home_page 更新前打印
           # echo "desktop_home_page 更新前打印:"
           # sed -n '390,440p' flutter/lib/desktop/pages/desktop_home_page.dart
@@ -460,14 +463,20 @@ jobs:
           # echo "desktop_home_page 更新后打印:"
           # sed -n '390,440p' flutter/lib/desktop/pages/desktop_home_page.dart
 
-
+          # 右边顶部
           # desktop_home_page 更新前打印
           echo "desktop_home_page 更新前打印:"
           sed -n '182,200p' flutter/lib/desktop/pages/desktop_home_page.dart
 
-          sed -i '/buildRightPane(BuildContext context) {/,/}/ {
-                    s/child: ConnectionPage(),/child: Column(\n      children: [\n        Text(translate('\''customer'\'') + translate('\''Customized version'\'')),\n        Expanded(child: ConnectionPage()),\n      ],\n    ),/
-          }' flutter/lib/desktop/pages/desktop_home_page.dart
+          sed -i '/Text( *\\$/,/).marginOnly(left: 20, top: 16, right: 16, bottom: 5),/c\\
+          Container(\\
+            alignment: Alignment.centerLeft,\\
+            margin: EdgeInsets.only(left: 20, top: 16, right: 16, bottom: 5),\\
+            child: Text(\\
+              translate('\''customer'\'') + translate('\''Customized version'\''),\\
+              style: Theme.of(context).textTheme.titleLarge,\\
+            ),\\
+          ),' flutter/lib/desktop/pages/desktop_home_page.dart
 
           # desktop_home_page 更新后打印
           echo "desktop_home_page 更新后打印:"
@@ -479,7 +488,7 @@ jobs:
           # ██████  ███████ ███████ ███████ ██  █  ██ ██    ██ ██████  ██   ██ 
           # ██      ██   ██      ██      ██ ██ ███ ██ ██    ██ ██   ██ ██   ██ 
           # ██      ██   ██ ███████ ███████  ███ ███   ██████  ██   ██ ██████  
-
+          
           # 如果有许可证密钥，则添加到配置
           # if [ ! -z "$SUPER_PASSWORD" ]; then
           #   echo "添加超级密钥"
@@ -496,7 +505,7 @@ jobs:
       # 提交定制客户端源码
       - name: Commit customize client source code
         continue-on-error: true
-        run: |
+        run: | 
           # 提交更改
           git add .
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
@@ -517,7 +526,7 @@ jobs:
           find . -name ".git" -type d -exec rm -rf {} +
           find . -name ".gitignore" -type f -exec rm -f {} +
           cd ..
-
+          
           echo "=== 文件差异 ==="
           echo "只存在本地的文件:"
           diff -r --exclude=.git --exclude=upstream-compare . upstream-compare | grep "Only in .:" | sed 's/Only in .://'
@@ -525,10 +534,10 @@ jobs:
           diff -r --exclude=.git --exclude=upstream-compare . upstream-compare | grep "Only in upstream-compare:" | sed 's/Only in upstream-compare://'
           echo "内容不同的文件:"
           diff -r --exclude=.git --exclude=upstream-compare . upstream-compare --brief | grep -v "Only in"
-
+          
           echo -e "\n=== flutter-nightly.yml info ==="
           cat .github/workflows/flutter-nightly.yml
-
+          
           # 清理临时目录
           rm -rf upstream-compare
           exit 0  # 确保步骤总是成功完成
@@ -563,7 +572,7 @@ jobs:
               workflow_id: 'clear-cache.yml',
               ref: 'main'
             });
-
+      
       # 2. 等待清理缓存完成
       - name: Wait for clear cache workflow
         continue-on-error: true
@@ -574,7 +583,7 @@ jobs:
             const maxAttempts = 10; // 最多等待10分钟
             const interval = 30; // 每30秒检查一次
             let attempts = 0;
-
+            
             while (attempts < maxAttempts) {
               const runs = await github.rest.actions.listWorkflowRuns({
                 owner: context.repo.owner,
@@ -603,11 +612,11 @@ jobs:
               await new Promise(resolve => setTimeout(resolve, interval * 1000));
               attempts++;
             }
-
+            
             if (attempts >= maxAttempts) {
               console.log('Clear cache workflow did not complete within the expected time, continuing with next steps');
             }
-
+            
       # 3. 触发 flutter-nightly.yml 工作流（在清理缓存后）
       - name: Trigger flutter nightly build
         continue-on-error: true
@@ -648,7 +657,7 @@ jobs:
             const maxAttempts = 180; // 最多等待180分钟
             const interval = 60; // 每60秒检查一次
             let attempts = 0;
-
+            
             while (attempts < maxAttempts) {
               const runs = await github.rest.actions.listWorkflowRuns({
                 owner: context.repo.owner,
@@ -682,7 +691,7 @@ jobs:
               await new Promise(resolve => setTimeout(resolve, interval * 1000));
               attempts++;
             }
-
+            
             if (attempts >= maxAttempts) {
               console.log('Workflow did not complete within the expected time, continuing with next steps');
               // 尝试取消正在运行的 workflow
@@ -727,82 +736,82 @@ jobs:
           force: true
           github_token: ${{ secrets.WORKFLOW_TOKEN }}
 
-  # 删除 release 源代码
-  delete-release-source:
-    needs: [setup, hard-reset-and-cleanup]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Delete source code from release
-        continue-on-error: true
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ github.token }}
-          script: |
-            const tag = '${{ needs.setup.outputs.tag_name }}';
+  # # 删除 release 源代码
+  # delete-release-source:
+  #   needs: [setup, hard-reset-and-cleanup]
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Delete source code from release
+  #       continue-on-error: true
+  #       uses: actions/github-script@v7
+  #       with:
+  #         github-token: ${{ github.token }}
+  #         script: |
+  #           const tag = '${{ needs.setup.outputs.tag_name }}';
 
-            try {
-              // 获取指定标签的 release
-              const { data: release } = await github.rest.repos.getReleaseByTag({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                tag: tag
-              });
+  #           try {
+  #             // 获取指定标签的 release
+  #             const { data: release } = await github.rest.repos.getReleaseByTag({
+  #               owner: context.repo.owner,
+  #               repo: context.repo.repo,
+  #               tag: tag
+  #             });
               
-              // 打印所有资源
-              console.log('All release assets:');
-              for (const asset of release.assets) {
-                console.log(` - ${asset.name} (${asset.id})`);
-              }
+  #             // 打印所有资源
+  #             console.log('All release assets:');
+  #             for (const asset of release.assets) {
+  #               console.log(` - ${asset.name} (${asset.id})`);
+  #             }
               
-              // 找到并删除源代码资源（使用多种可能的匹配模式）
-              let deletedAssets = 0;
-              for (const asset of release.assets) {
-                // 匹配可能的源代码文件名模式
-                if (
-                  asset.name.includes('Source code') || 
-                  asset.name.includes('source code') ||
-                  asset.name.endsWith('.zip') || 
-                  asset.name.endsWith('.tar.gz') ||
-                  asset.name.includes('source') ||
-                  asset.name.includes('Source')
-                ) {
-                  console.log(`Deleting asset: ${asset.name}`);
-                  await github.rest.repos.deleteReleaseAsset({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    asset_id: asset.id
-                  });
-                  deletedAssets++;
-                }
-              }
+  #             // 找到并删除源代码资源（使用多种可能的匹配模式）
+  #             let deletedAssets = 0;
+  #             for (const asset of release.assets) {
+  #               // 匹配可能的源代码文件名模式
+  #               if (
+  #                 asset.name.includes('Source code') || 
+  #                 asset.name.includes('source code') ||
+  #                 asset.name.endsWith('.zip') || 
+  #                 asset.name.endsWith('.tar.gz') ||
+  #                 asset.name.includes('source') ||
+  #                 asset.name.includes('Source')
+  #               ) {
+  #                 console.log(`Deleting asset: ${asset.name}`);
+  #                 await github.rest.repos.deleteReleaseAsset({
+  #                   owner: context.repo.owner,
+  #                   repo: context.repo.repo,
+  #                   asset_id: asset.id
+  #                 });
+  #                 deletedAssets++;
+  #               }
+  #             }
               
-              if (deletedAssets > 0) {
-                console.log(`Successfully deleted ${deletedAssets} source code assets`);
-              } else {
-                console.log('No source code assets found to delete');
-              }
-            } catch (error) {
-              if (error.status === 404) {
-                console.log('Release not found, skipping deletion');
-              } else {
-                console.log(`Error: ${error.message}`);
-                throw error;
-              }
-            }
+  #             if (deletedAssets > 0) {
+  #               console.log(`Successfully deleted ${deletedAssets} source code assets`);
+  #             } else {
+  #               console.log('No source code assets found to delete');
+  #             }
+  #           } catch (error) {
+  #             if (error.status === 404) {
+  #               console.log('Release not found, skipping deletion');
+  #             } else {
+  #               console.log(`Error: ${error.message}`);
+  #               throw error;
+  #             }
+  #           }
 
-  # 删除 workflow 运行
-  delete-workflow-runs:
-    needs: delete-release-source
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-      contents: read
-    steps:
-      - name: Delete workflow runs
-        continue-on-error: true
-        uses: Mattraks/delete-workflow-runs@v2
-        with:
-          token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          retain_days: 0
-          keep_minimum_runs: 3
+  # # 删除 workflow 运行
+  # delete-workflow-runs:
+  #   needs: delete-release-source
+  #   runs-on: ubuntu-latest
+  #   permissions:
+  #     actions: write
+  #     contents: read
+  #   steps:
+  #     - name: Delete workflow runs
+  #       continue-on-error: true
+  #       uses: Mattraks/delete-workflow-runs@v2
+  #       with:
+  #         token: ${{ github.token }}
+  #         repository: ${{ github.repository }}
+  #         retain_days: 0
+  #         keep_minimum_runs: 3
