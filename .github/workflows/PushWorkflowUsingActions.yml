@@ -1,0 +1,83 @@
+name: Push workflow using action
+
+on:
+  workflow_dispatch:
+    
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ github.head_ref }}
+        fetch-depth: 0
+        persist-credentials: false  # 防止凭证冲突
+        
+    - name: Create new workflow file
+      run: |
+        # 检查hello.yml是否存在，如果存在则删除
+        if [ -f .github/workflows/hello.yml ]; then
+          echo "hello.yml已存在，正在删除..."
+          rm .github/workflows/hello.yml
+        fi
+        
+        # 创建目录和文件
+        mkdir -p .github/workflows
+        
+        # 生成随机人名
+        NAMES=("张三" "李四" "王五" "赵六" "刘七" "孙八" "周九" "吴十" "郑十一" "钱十二")
+        RANDOM_INDEX=$((RANDOM % ${#NAMES[@]}))
+        RANDOM_NAME=${NAMES[$RANDOM_INDEX]}
+        
+        # 创建工作流文件
+        echo 'name: Hello World' > .github/workflows/hello.yml
+        echo 'on:' >> .github/workflows/hello.yml
+        echo '  workflow_dispatch:' >> .github/workflows/hello.yml
+        echo 'jobs:' >> .github/workflows/hello.yml
+        echo '  hello:' >> .github/workflows/hello.yml
+        echo '    runs-on: ubuntu-latest' >> .github/workflows/hello.yml
+        echo '    steps:' >> .github/workflows/hello.yml
+        echo '      - name: Say Hello' >> .github/workflows/hello.yml
+        echo "        run: echo \"Hello ${RANDOM_NAME}!\"" >> .github/workflows/hello.yml
+        
+        # 显示创建的文件内容
+        echo "已创建的工作流文件内容："
+        cat .github/workflows/hello.yml
+        
+    - name: Debug - Check Git Remote
+      run: git remote -v
+      
+    - name: Debug - Check Secret Existence
+      run: |
+        if [[ -n "${{ secrets.WORKFLOW_TOKEN }}" ]]; then
+          echo "WORKFLOW_TOKEN secret exists and is not empty"
+        else
+          echo "WORKFLOW_TOKEN secret is either not defined or empty"
+        fi
+        
+    - name: Debug - Check Token Auth with explicit environment variable
+      env:
+        GH_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
+      run: |
+        echo "Testing authentication with token..."
+        if [[ -n "$GH_TOKEN" ]]; then
+          echo "Token is available in environment"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token $GH_TOKEN" https://api.github.com/user)
+          echo "Authentication status: $STATUS (200 means success)"
+        else
+          echo "Token is NOT available in environment"
+        fi
+        
+    - name: Commit files
+      run: |
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        git add .
+        git commit -m "Add hello workflow with random name"
+        
+    - name: Push changes using action
+      uses: ad-m/github-push-action@master
+      with:
+        github_token: ${{ secrets.WORKFLOW_TOKEN }}
+        branch: main
+        force: true
