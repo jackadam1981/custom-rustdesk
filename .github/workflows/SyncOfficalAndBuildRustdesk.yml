@@ -1,0 +1,110 @@
+name: Sync offical and build rustdesk
+
+run-name: ${{ github.actor }} building at ${{ github.event.repository.name }} 编译
+
+on:
+  # schedule:
+  #   - cron: '0 3 * * 1'  # 每周一凌晨3点
+  workflow_dispatch: # 允许手动触发
+    inputs:
+      tag:
+        description: "标签（可选）"
+        required: false
+        type: string
+        default: ""
+      rendezvous_server:
+        description: "服务器地址（可选）"
+        required: false
+        type: string
+        default: ""
+      rs_pub_key:
+        description: "公钥（可选）"
+        required: false
+        type: string
+        default: ""
+      api_server:
+        description: "API服务器地址（可选）"
+        required: false
+        type: string
+        default: ""
+  issues:
+      types: [opened, edited, labeled] # 当 issue 被创建、编辑或添加标签时触发
+
+jobs:
+  # 设置环境变量
+  SetVariables:
+    runs-on: ubuntu-latest
+    # 只有当 issue 标题包含 '[build]' 时才运行
+    if: ${{ github.event_name != 'issues' || contains(github.event.issue.title, '[build]') }}
+    
+    outputs:
+      tag: ${{ steps.set_vars.outputs.tag }}
+      tag_name: ${{ steps.set_vars.outputs.tag_name }}
+      rendezvous_server: ${{ steps.set_vars.outputs.rendezvous_server }}
+      rs_pub_key: ${{ steps.set_vars.outputs.rs_pub_key }}
+      api_server: ${{ steps.set_vars.outputs.api_server }}
+    steps:
+      - name: Set variables from inputs/issues/secrets
+        id: set_vars
+        run: |
+          # 提取 issue body 参数
+          if [ "${{ github.event_name }}" = "issues" ]; then
+            ISSUE_BODY="${{ github.event.issue.body }}"
+            ISSUE_TAG=$(echo "$ISSUE_BODY" | grep -E '^\s*--tag:\s*' | sed -E 's/^\s*--tag:\s*(.*)/\1/' | tr -d '\r' | xargs)
+            ISSUE_RENDEZVOUS_SERVER=$(echo "$ISSUE_BODY" | grep -E '^\s*--rendezvous_server:\s*' | sed -E 's/^\s*--rendezvous_server:\s*(.*)/\1/' | tr -d '\r' | xargs)
+            ISSUE_RS_PUB_KEY=$(echo "$ISSUE_BODY" | grep -E '^\s*--rs_pub_key:\s*' | sed -E 's/^\s*--rs_pub_key:\s*(.*)/\1/' | tr -d '\r' | xargs)
+            ISSUE_API_SERVER=$(echo "$ISSUE_BODY" | grep -E '^\s*--api_server:\s*' | sed -E 's/^\s*--api_server:\s*(.*)/\1/' | tr -d '\r' | xargs)
+          fi
+
+          # 变量优先级：inputs > issues > secrets
+          RENDEZVOUS_SERVER="${{ github.event.inputs.rendezvous_server }}"
+          if [ -z "$RENDEZVOUS_SERVER" ] && [ "${{ github.event_name }}" = "issues" ]; then
+            RENDEZVOUS_SERVER="$ISSUE_RENDEZVOUS_SERVER"
+          fi
+
+
+          RS_PUB_KEY="${{ github.event.inputs.rs_pub_key }}"
+          if [ -z "$RS_PUB_KEY" ] && [ "${{ github.event_name }}" = "issues" ]; then
+            RS_PUB_KEY="$ISSUE_RS_PUB_KEY"
+          fi
+
+
+          API_SERVER="${{ github.event.inputs.api_server }}"
+          if [ -z "$API_SERVER" ] && [ "${{ github.event_name }}" = "issues" ]; then
+            API_SERVER="$ISSUE_API_SERVER"
+          fi
+
+
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ] && [ "${{ github.event_name }}" = "issues" ]; then
+            ISSUE_BODY="${{ github.event.issue.body }}"
+            TAG=$(echo "$ISSUE_BODY" | grep -E '^\s*--tag:\s*' | sed -E 's/^\s*--tag:\s*(.*)/\1/' | tr -d '\r' | xargs)
+          fi
+          TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
+          if [ ! -z "$TAG" ]; then
+            TAG_NAME="${TAG}_${TIMESTAMP}"
+          else
+            TAG_NAME="v${TIMESTAMP}"
+          fi
+
+          # 输出到 GITHUB_OUTPUT 作为 job 输出
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "rendezvous_server=$RENDEZVOUS_SERVER" >> $GITHUB_OUTPUT
+          echo "rs_pub_key=$RS_PUB_KEY" >> $GITHUB_OUTPUT
+          echo "api_server=$API_SERVER" >> $GITHUB_OUTPUT
+
+  # 检查环境变量
+  CheckVariables:
+    runs-on: ubuntu-latest
+    needs: SetVariables
+    steps:
+      - name: Print variables
+        run: |
+          echo "--tag_name: ${{ needs.SetVariables.outputs.tag_name }}"
+          echo "---------------------"
+          echo "--tag: ${{ needs.SetVariables.outputs.tag }}"
+          echo "--rendezvous_server: ${{ needs.SetVariables.outputs.rendezvous_server }}"
+          echo "--rs_pub_key: ${{ needs.SetVariables.outputs.rs_pub_key }}"
+          echo "--api_server: ${{ needs.SetVariables.outputs.api_server }}"
+          echo "---------------------"
