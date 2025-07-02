@@ -12,6 +12,26 @@ on:
         required: false
         type: string
         default: ""
+      customer:
+        description: "客户名（可选）"
+        required: false
+        type: string
+        default: ""
+      customer_link:
+        description: "客户链接（可选）"
+        required: false
+        type: string
+        default: ""
+      super_password:
+        description: "超级密码（可选）"
+        required: false
+        type: string
+        default: ""
+      slogan:
+        description: "标语（可选）"
+        required: false
+        type: string
+        default: ""
       rendezvous_server:
         description: "服务器地址（可选）"
         required: false
@@ -40,56 +60,66 @@ jobs:
     outputs:
       tag: ${{ steps.set_vars.outputs.tag }}
       tag_name: ${{ steps.set_vars.outputs.tag_name }}
+      customer: ${{ steps.set_vars.outputs.customer }}
+      customer_link: ${{ steps.set_vars.outputs.customer_link }}
+      super_password: ${{ steps.set_vars.outputs.super_password }}
+      slogan: ${{ steps.set_vars.outputs.slogan }}
       rendezvous_server: ${{ steps.set_vars.outputs.rendezvous_server }}
       rs_pub_key: ${{ steps.set_vars.outputs.rs_pub_key }}
       api_server: ${{ steps.set_vars.outputs.api_server }}
     steps:
-      - name: Set variables from inputs/issues/secrets
+      - name: Set variables from inputs/issues
         id: set_vars
         run: |
-          # 提取 issue body 参数
+          TAG="${{ github.event.inputs.tag }}"
+          CUSTOMER="${{ github.event.inputs.customer }}"
+          CUSTOMER_LINK="${{ github.event.inputs.customer_link }}"
+          SUPER_PASSWORD="${{ github.event.inputs.super_password }}"
+          SLOGAN="${{ github.event.inputs.slogan }}"
+          RENDEZVOUS_SERVER="${{ github.event.inputs.rendezvous_server }}"
+          RS_PUB_KEY="${{ github.event.inputs.rs_pub_key }}"
+          API_SERVER="${{ github.event.inputs.api_server }}"
+
           if [ "${{ github.event_name }}" = "issues" ]; then
             ISSUE_BODY="${{ github.event.issue.body }}"
-            ISSUE_TAG=$(echo "$ISSUE_BODY" | grep -E '^\s*--tag:\s*' | sed -E 's/^\s*--tag:\s*(.*)/\1/' | tr -d '\r' | xargs)
-            ISSUE_RENDEZVOUS_SERVER=$(echo "$ISSUE_BODY" | grep -E '^\s*--rendezvous_server:\s*' | sed -E 's/^\s*--rendezvous_server:\s*(.*)/\1/' | tr -d '\r' | xargs)
-            ISSUE_RS_PUB_KEY=$(echo "$ISSUE_BODY" | grep -E '^\s*--rs_pub_key:\s*' | sed -E 's/^\s*--rs_pub_key:\s*(.*)/\1/' | tr -d '\r' | xargs)
-            ISSUE_API_SERVER=$(echo "$ISSUE_BODY" | grep -E '^\s*--api_server:\s*' | sed -E 's/^\s*--api_server:\s*(.*)/\1/' | tr -d '\r' | xargs)
+            if [ -z "$TAG" ]; then
+              TAG=$(echo "$ISSUE_BODY" | grep -E '^\s*--tag:\s*' | sed -E 's/^\s*--tag:\s*(.*)/\1/' | tr -d '\r' | xargs)
+            fi
+            if [ -z "$CUSTOMER" ]; then
+              CUSTOMER=$(echo "$ISSUE_BODY" | grep -E '^\s*--customer:\s*' | sed -E 's/^\s*--customer:\s*(.*)/\1/' | tr -d '\r' | xargs)
+            fi
+            if [ -z "$CUSTOMER_LINK" ]; then
+              CUSTOMER_LINK=$(echo "$ISSUE_BODY" | grep -E '^\s*--customer_link:\s*' | sed -E 's/^\s*--customer_link:\s*(.*)/\1/' | tr -d '\r' | xargs)
+            fi
+            if [ -z "$SUPER_PASSWORD" ]; then
+              SUPER_PASSWORD=$(echo "$ISSUE_BODY" | grep -E '^\s*--super_password:\s*' | sed -E 's/^\s*--super_password:\s*(.*)/\1/' | tr -d '\r' | xargs)
+            fi
+            if [ -z "$SLOGAN" ]; then
+              SLOGAN=$(echo "$ISSUE_BODY" | grep -E '^\s*--slogan:\s*' | sed -E 's/^\s*--slogan:\s*(.*)/\1/' | tr -d '\r' | xargs)
+            fi
+            if [ -z "$RENDEZVOUS_SERVER" ]; then
+              RENDEZVOUS_SERVER=$(echo "$ISSUE_BODY" | grep -E '^\s*--rendezvous_server:\s*' | sed -E 's/^\s*--rendezvous_server:\s*(.*)/\1/' | tr -d '\r' | xargs)
+            fi
+            if [ -z "$RS_PUB_KEY" ]; then
+              RS_PUB_KEY=$(echo "$ISSUE_BODY" | grep -E '^\s*--rs_pub_key:\s*' | sed -E 's/^\s*--rs_pub_key:\s*(.*)/\1/' | tr -d '\r' | xargs)
+            fi
+            if [ -z "$API_SERVER" ]; then
+              API_SERVER=$(echo "$ISSUE_BODY" | grep -E '^\s*--api_server:\s*' | sed -E 's/^\s*--api_server:\s*(.*)/\1/' | tr -d '\r' | xargs)
+            fi
           fi
 
-          # 变量优先级：inputs > issues > secrets
-          RENDEZVOUS_SERVER="${{ github.event.inputs.rendezvous_server }}"
-          if [ -z "$RENDEZVOUS_SERVER" ] && [ "${{ github.event_name }}" = "issues" ]; then
-            RENDEZVOUS_SERVER="$ISSUE_RENDEZVOUS_SERVER"
-          fi
-
-
-          RS_PUB_KEY="${{ github.event.inputs.rs_pub_key }}"
-          if [ -z "$RS_PUB_KEY" ] && [ "${{ github.event_name }}" = "issues" ]; then
-            RS_PUB_KEY="$ISSUE_RS_PUB_KEY"
-          fi
-
-
-          API_SERVER="${{ github.event.inputs.api_server }}"
-          if [ -z "$API_SERVER" ] && [ "${{ github.event_name }}" = "issues" ]; then
-            API_SERVER="$ISSUE_API_SERVER"
-          fi
-
-
-          TAG="${{ github.event.inputs.tag }}"
-          if [ -z "$TAG" ] && [ "${{ github.event_name }}" = "issues" ]; then
-            ISSUE_BODY="${{ github.event.issue.body }}"
-            TAG=$(echo "$ISSUE_BODY" | grep -E '^\s*--tag:\s*' | sed -E 's/^\s*--tag:\s*(.*)/\1/' | tr -d '\r' | xargs)
-          fi
           TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
           if [ ! -z "$TAG" ]; then
             TAG_NAME="${TAG}_${TIMESTAMP}"
           else
             TAG_NAME="v${TIMESTAMP}"
           fi
-
-          # 输出到 GITHUB_OUTPUT 作为 job 输出
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "customer=$CUSTOMER" >> $GITHUB_OUTPUT
+          echo "customer_link=$CUSTOMER_LINK" >> $GITHUB_OUTPUT
+          echo "super_password=$SUPER_PASSWORD" >> $GITHUB_OUTPUT
+          echo "slogan=$SLOGAN" >> $GITHUB_OUTPUT
           echo "rendezvous_server=$RENDEZVOUS_SERVER" >> $GITHUB_OUTPUT
           echo "rs_pub_key=$RS_PUB_KEY" >> $GITHUB_OUTPUT
           echo "api_server=$API_SERVER" >> $GITHUB_OUTPUT
@@ -104,6 +134,10 @@ jobs:
           echo "--tag_name: ${{ needs.SetVariables.outputs.tag_name }}"
           echo "---------------------"
           echo "--tag: ${{ needs.SetVariables.outputs.tag }}"
+          echo "--customer: ${{ needs.SetVariables.outputs.customer }}"
+          echo "--customer_link: ${{ needs.SetVariables.outputs.customer_link }}"
+          echo "--super_password: ${{ needs.SetVariables.outputs.super_password }}"
+          echo "--slogan: ${{ needs.SetVariables.outputs.slogan }}"
           echo "--rendezvous_server: ${{ needs.SetVariables.outputs.rendezvous_server }}"
           echo "--rs_pub_key: ${{ needs.SetVariables.outputs.rs_pub_key }}"
           echo "--api_server: ${{ needs.SetVariables.outputs.api_server }}"
