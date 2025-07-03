@@ -124,21 +124,17 @@ jobs:
           echo "rs_pub_key=$RS_PUB_KEY" >> $GITHUB_OUTPUT
           echo "api_server=$API_SERVER" >> $GITHUB_OUTPUT
 
-  # 检查环境变量
-  CheckVariables:
-    runs-on: ubuntu-latest
-    needs: SetVariables
-    steps:
       - name: Print variables
         run: |
-          echo "--tag_name: ${{ needs.SetVariables.outputs.tag_name }}"
+          echo "--tag_name: ${{ steps.set_vars.outputs.tag_name }}"
           echo "---------------------"
-          echo "--tag: ${{ needs.SetVariables.outputs.tag }}"
-          echo "--customer: ${{ needs.SetVariables.outputs.customer }}"
-          echo "--customer_link: ${{ needs.SetVariables.outputs.customer_link }}"
-          echo "--super_password: ${{ needs.SetVariables.outputs.super_password }}"
-          echo "--slogan: ${{ needs.SetVariables.outputs.slogan }}"
-          echo "--rendezvous_server: ${{ needs.SetVariables.outputs.rendezvous_server }}"
-          echo "--rs_pub_key: ${{ needs.SetVariables.outputs.rs_pub_key }}"
-          echo "--api_server: ${{ needs.SetVariables.outputs.api_server }}"
+          echo "--tag: ${{ steps.set_vars.outputs.tag }}"
+          echo "--customer: ${{ steps.set_vars.outputs.customer }}"
+          echo "--customer_link: ${{ steps.set_vars.outputs.customer_link }}"
+          echo "--super_password: ${{ steps.set_vars.outputs.super_password }}"
+          echo "--slogan: ${{ steps.set_vars.outputs.slogan }}"
+          echo "--rendezvous_server: ${{ steps.set_vars.outputs.rendezvous_server }}"
+          echo "--rs_pub_key: ${{ steps.set_vars.outputs.rs_pub_key }}"
+          echo "--api_server: ${{ steps.set_vars.outputs.api_server }}"
           echo "---------------------"
+
