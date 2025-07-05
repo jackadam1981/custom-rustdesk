@@ -165,73 +165,74 @@ jobs:
           # 删除临时目录
           rm -rf upstream-temp
 
-      # # 定制客户端
-      # - name: Customize client
-      #   continue-on-error: true
-      #   run: |
-      #     echo "获取所有配置变量（从needs.setup中获取）"
-      #     TAG="${{ needs.SetVariables.outputs.tag }}"
-      #     TAG_NAME="${{ needs.SetVariables.outputs.tag_name }}"
-      #     CUSTOMER="${{ needs.SetVariables.outputs.customer }}"
-      #     CUSTOMER_LINK="${{ needs.SetVariables.outputs.customer_link }}"
-      #     SLOGAN="${{needs.SetVariables.outputs.slogan}}"
-      #     SUPER_PASSWORD="${{ needs.SetVariables.outputs.super_password }}"
-      #     RENDEZVOUS_SERVER="${{ needs.SetVariables.outputs.rendezvous_server }}"
-      #     RS_PUB_KEY="${{ needs.SetVariables.outputs.rs_pub_key }}"
-      #     API_SERVER="${{ needs.SetVariables.outputs.api_server }}"
+      # 定制客户端
+      - name: Customize client
+        continue-on-error: true
+        run: |
+          echo "获取所有配置变量（从needs.setup中获取）"
+          TAG="${{ needs.SetVariables.outputs.tag }}"
+          TAG_NAME="${{ needs.SetVariables.outputs.tag_name }}"
+          CUSTOMER="${{ needs.SetVariables.outputs.customer }}"
+          CUSTOMER_LINK="${{ needs.SetVariables.outputs.customer_link }}"
+          SLOGAN="${{needs.SetVariables.outputs.slogan}}"
+          SUPER_PASSWORD="${{ needs.SetVariables.outputs.super_password }}"
+          RENDEZVOUS_SERVER="${{ needs.SetVariables.outputs.rendezvous_server }}"
+          RS_PUB_KEY="${{ needs.SetVariables.outputs.rs_pub_key }}"
+          API_SERVER="${{ needs.SetVariables.outputs.api_server }}"
 
-      #     echo "---------------------"
-      #     echo "tag=$TAG"
-      #     echo "tag_name=$TAG_NAME"
-      #     echo "customer=$CUSTOMER"
-      #     echo "customer_link=$CUSTOMER_LINK"
-      #     echo "super_password=$SUPER_PASSWORD"
-      #     echo "slogan=$SLOGAN"
-      #     echo "rendezvous_server=$RENDEZVOUS_SERVER"
-      #     echo "rs_pub_key=$RS_PUB_KEY"
-      #     echo "api_server=$API_SERVER"
-      #     echo "---------------------"
+          echo "---------------------"
+          echo "tag=$TAG"
+          echo "tag_name=$TAG_NAME"
+          echo "customer=$CUSTOMER"
+          echo "customer_link=$CUSTOMER_LINK"
+          echo "super_password=$SUPER_PASSWORD"
+          echo "slogan=$SLOGAN"
+          echo "rendezvous_server=$RENDEZVOUS_SERVER"
+          echo "rs_pub_key=$RS_PUB_KEY"
+          echo "api_server=$API_SERVER"
+          echo "---------------------"
 
-      #     # 删除定时任务
-      #     sed -i '4,6d' .github/workflows/flutter-nightly.yml
+          # 删除定时任务
+          sed -i '4,6d' .github/workflows/flutter-nightly.yml
 
-      #     # 更新 flutter-nightly.yml 中的标签
-      #     echo "Updating tag in flutter-nightly.yml"
-      #     sed -i '/upload-tag:/ s/"nightly"/"'"$TAG_NAME"'"/' .github/workflows/flutter-nightly.yml
+          # 更新 flutter-nightly.yml 中的标签
+          echo "Updating tag in flutter-nightly.yml"
+          sed -i '/upload-tag:/ s/"nightly"/"'"$TAG_NAME"'"/' .github/workflows/flutter-nightly.yml
 
-      #     # ██████  ██████  ███    ██ ███████ ██  ██████  
-      #     # ██      ██    ██ ████   ██ ██      ██ ██       
-      #     # ██      ██    ██ ██ ██  ██ █████   ██ ██   ███ 
-      #     # ██      ██    ██ ██  ██ ██ ██      ██ ██    ██ 
-      #     #  ██████  ██████  ██   ████ ██      ██  ██████  
-
-
-      #     # ████████ ██████   █████  ███    ██ ███████ ██       █████  ████████ ███████ 
-      #     #    ██    ██   ██ ██   ██ ████   ██ ██      ██      ██   ██    ██    ██      
-      #     #    ██    ██████  ███████ ██ ██  ██ ███████ ██      ███████    ██    █████   
-      #     #    ██    ██   ██ ██   ██ ██  ██ ██      ██ ██      ██   ██    ██    ██      
-      #     #    ██    ██   ██ ██   ██ ██   ████ ███████ ███████ ██   ██    ██    ███████
+          # ██████  ██████  ███    ██ ███████ ██  ██████  
+          # ██      ██    ██ ████   ██ ██      ██ ██       
+          # ██      ██    ██ ██ ██  ██ █████   ██ ██   ███ 
+          # ██      ██    ██ ██  ██ ██ ██      ██ ██    ██ 
+          #  ██████  ██████  ██   ████ ██      ██  ██████  
 
 
-      #     # ███████  ██████ ██ ████████ ███████ ██████  
-      #     # ██      ██      ██    ██    ██      ██   ██ 
-      #     # ███████ ██      ██    ██    █████   ██████  
-      #     #      ██ ██      ██    ██    ██      ██   ██ 
-      #     # ███████  ██████ ██    ██    ███████ ██   ██ 
+          # ████████ ██████   █████  ███    ██ ███████ ██       █████  ████████ ███████ 
+          #    ██    ██   ██ ██   ██ ████   ██ ██      ██      ██   ██    ██    ██      
+          #    ██    ██████  ███████ ██ ██  ██ ███████ ██      ███████    ██    █████   
+          #    ██    ██   ██ ██   ██ ██  ██ ██      ██ ██      ██   ██    ██    ██      
+          #    ██    ██   ██ ██   ██ ██   ████ ███████ ███████ ██   ██    ██    ███████
+          
 
 
-      #     # ███████ ██      ██    ██ ████████ ████████ ███████ ██████  
-      #     # ██      ██      ██    ██    ██       ██    ██      ██   ██ 
-      #     # █████   ██      ██    ██    ██       ██    █████   ██████  
-      #     # ██      ██      ██    ██    ██       ██    ██      ██   ██ 
-      #     # ██      ███████  ██████     ██       ██    ███████ ██   ██ 
+          # ███████  ██████ ██ ████████ ███████ ██████  
+          # ██      ██      ██    ██    ██      ██   ██ 
+          # ███████ ██      ██    ██    █████   ██████  
+          #      ██ ██      ██    ██    ██      ██   ██ 
+          # ███████  ██████ ██    ██    ███████ ██   ██ 
 
 
-      #     # ██████   █████  ███████ ███████ ██     ██  ██████  ██████  ██████  
-      #     # ██   ██ ██   ██ ██      ██      ██     ██ ██    ██ ██   ██ ██   ██ 
-      #     # ██████  ███████ ███████ ███████ ██  █  ██ ██    ██ ██████  ██   ██ 
-      #     # ██      ██   ██      ██      ██ ██ ███ ██ ██    ██ ██   ██ ██   ██ 
-      #     # ██      ██   ██ ███████ ███████  ███ ███   ██████  ██   ██ ██████  
+          # ███████ ██      ██    ██ ████████ ████████ ███████ ██████  
+          # ██      ██      ██    ██    ██       ██    ██      ██   ██ 
+          # █████   ██      ██    ██    ██       ██    █████   ██████  
+          # ██      ██      ██    ██    ██       ██    ██      ██   ██ 
+          # ██      ███████  ██████     ██       ██    ███████ ██   ██ 
+
+
+          # ██████   █████  ███████ ███████ ██     ██  ██████  ██████  ██████  
+          # ██   ██ ██   ██ ██      ██      ██     ██ ██    ██ ██   ██ ██   ██ 
+          # ██████  ███████ ███████ ███████ ██  █  ██ ██    ██ ██████  ██   ██ 
+          # ██      ██   ██      ██      ██ ██ ███ ██ ██    ██ ██   ██ ██   ██ 
+          # ██      ██   ██ ███████ ███████  ███ ███   ██████  ██   ██ ██████  
 
       # 提交定制客户端源码
       - name: Commit customize client source code
