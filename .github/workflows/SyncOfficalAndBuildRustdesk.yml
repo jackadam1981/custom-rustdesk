@@ -71,6 +71,8 @@ jobs:
       rendezvous_server: ${{ steps.set_vars.outputs.rendezvous_server }}
       rs_pub_key: ${{ steps.set_vars.outputs.rs_pub_key }}
       api_server: ${{ steps.set_vars.outputs.api_server }}
+      sensitive_found: ${{ steps.set_vars.outputs.sensitive_found }}
+      sensitive_count: ${{ steps.set_vars.outputs.sensitive_count }}
     steps:
       - name: Set variables from inputs/issues
         id: set_vars
@@ -110,6 +112,20 @@ jobs:
             if [ -z "$API_SERVER" ]; then
               API_SERVER=$(echo "$ISSUE_BODY" | grep -E '^\s*--api_server:\s*' | sed -E 's/^\s*--api_server:\s*(.*)/\1/' | tr -d '\r' | xargs)
             fi
+            
+            # 检查是否有敏感信息
+            SENSITIVE_COUNT=$(echo "$ISSUE_BODY" | grep -E '--(super_password|rs_pub_key|api_server|rendezvous_server):\s*\S+' | wc -l)
+            
+            if [ "$SENSITIVE_COUNT" -gt 0 ]; then
+              echo "sensitive_found=true" >> $GITHUB_OUTPUT
+              echo "sensitive_count=$SENSITIVE_COUNT" >> $GITHUB_OUTPUT
+            else
+              echo "sensitive_found=false" >> $GITHUB_OUTPUT
+              echo "sensitive_count=0" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "sensitive_found=false" >> $GITHUB_OUTPUT
+            echo "sensitive_count=0" >> $GITHUB_OUTPUT
           fi
 
           TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
@@ -141,6 +157,62 @@ jobs:
           echo "--rs_pub_key: ${{ steps.set_vars.outputs.rs_pub_key }}"
           echo "--api_server: ${{ steps.set_vars.outputs.api_server }}"
           echo "---------------------"
+          echo "Sensitive data found: ${{ steps.set_vars.outputs.sensitive_found }}"
+          echo "Sensitive count: ${{ steps.set_vars.outputs.sensitive_count }}"
+
+      - name: Clean sensitive data if found
+        if: github.event_name == 'issues' && steps.set_vars.outputs.sensitive_found == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issueNumber = context.issue.number;
+            const sensitiveCount = '${{ steps.set_vars.outputs.sensitive_count }}';
+            
+            try {
+              // 获取 Issue 内容
+              const issue = await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber
+              });
+              
+              // 清理敏感信息
+              let cleanedBody = issue.data.body.replace(
+                /--(super_password|rs_pub_key|api_server|rendezvous_server):\s*\S+/gi,
+                (match) => {
+                  const [param] = match.split(':');
+                  return `${param}: [已清理]`;
+                }
+              );
+              
+              // 更新 Issue
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: cleanedBody
+              });
+              
+              // 添加清理通知
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: `🔒 **敏感信息已清理**
+                
+                ✅ 已清理 ${sensitiveCount} 个敏感参数
+                ✅ Issue 已更新，敏感信息已替换为 [已清理]
+                ✅ 构建将继续使用预设的安全配置
+                
+                ---
+                *为了保护安全，敏感信息已被自动清理*`
+              });
+              
+              console.log(`Cleaned ${sensitiveCount} sensitive parameters from issue ${issueNumber}`);
+            } catch (error) {
+              console.log('Error cleaning sensitive data:', error.message);
+            }
 
   # 同步上游，定制客户端
   SynchronizeCustom:
