@@ -2,6 +2,10 @@ name: Sync offical and build rustdesk
 
 run-name: ${{ github.actor }} building at ${{ github.event.repository.name }} 编译
 
+concurrency:
+  group: ${{ github.workflow }}-main
+  cancel-in-progress: false
+
 on:
   # schedule:
   #   - cron: '0 3 * * 1'  # 每周一凌晨3点
