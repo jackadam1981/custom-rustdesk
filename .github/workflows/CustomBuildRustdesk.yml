@@ -85,8 +85,8 @@ on:
         default: "manual"
 
 jobs:
-  # 设置环境变量
-  SetVariables:
+  # 1. Initialize (初始化)
+  Initialize:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.set_vars.outputs.tag }}
@@ -152,12 +152,18 @@ jobs:
           echo "Triggered by issue: ${{ steps.set_vars.outputs.triggered_by_issue }}"
           echo "Issue number: ${{ steps.set_vars.outputs.issue_number }}"
 
-  # 同步上游，定制客户端
-  SynchronizeCustom:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_TOKEN }}
+
+  # 2. Prepare (准备阶段)
+  Prepare:
     runs-on: ubuntu-latest
-    needs: SetVariables
+    needs: Initialize
     steps:
-      #检出 workflow 文件
+      # 检出定制仓库
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -185,15 +191,15 @@ jobs:
         continue-on-error: true
         run: |
           echo "获取所有配置变量"
-          TAG="${{ needs.SetVariables.outputs.tag }}"
-          TAG_NAME="${{ needs.SetVariables.outputs.tag_name }}"
-          CUSTOMER="${{ needs.SetVariables.outputs.customer }}"
-          CUSTOMER_LINK="${{ needs.SetVariables.outputs.customer_link }}"
-          SLOGAN="${{ needs.SetVariables.outputs.slogan }}"
-          SUPER_PASSWORD="${{ needs.SetVariables.outputs.super_password }}"
-          RENDEZVOUS_SERVER="${{ needs.SetVariables.outputs.rendezvous_server }}"
-          RS_PUB_KEY="${{ needs.SetVariables.outputs.rs_pub_key }}"
-          API_SERVER="${{ needs.SetVariables.outputs.api_server }}"
+          TAG="${{ needs.Initialize.outputs.tag }}"
+          TAG_NAME="${{ needs.Initialize.outputs.tag_name }}"
+          CUSTOMER="${{ needs.Initialize.outputs.customer }}"
+          CUSTOMER_LINK="${{ needs.Initialize.outputs.customer_link }}"
+          SLOGAN="${{ needs.Initialize.outputs.slogan }}"
+          SUPER_PASSWORD="${{ needs.Initialize.outputs.super_password }}"
+          RENDEZVOUS_SERVER="${{ needs.Initialize.outputs.rendezvous_server }}"
+          RS_PUB_KEY="${{ needs.Initialize.outputs.rs_pub_key }}"
+          API_SERVER="${{ needs.Initialize.outputs.api_server }}"
 
           echo "---------------------"
           echo "tag=$TAG"
@@ -214,6 +220,49 @@ jobs:
           echo "Updating tag in flutter-nightly.yml"
           sed -i '/upload-tag:/ s/"nightly"/"'"$TAG_NAME"'"/' .github/workflows/flutter-nightly.yml
 
+          #  ██████  ██████  ███    ██ ███████ ██  ██████  
+          # ██      ██    ██ ████   ██ ██      ██ ██       
+          # ██      ██    ██ ██ ██  ██ █████   ██ ██   ███ 
+          # ██      ██    ██ ██  ██ ██ ██      ██ ██    ██ 
+          #  ██████  ██████  ██   ████ ██      ██  ██████  
+
+
+          # ████████ ██████   █████  ███    ██ ███████ ██       █████  ████████ ███████ 
+          #    ██    ██   ██ ██   ██ ████   ██ ██      ██      ██   ██    ██    ██      
+          #    ██    ██████  ███████ ██ ██  ██ ███████ ██      ███████    ██    █████   
+          #    ██    ██   ██ ██   ██ ██  ██ ██      ██ ██      ██   ██    ██    ██      
+          #    ██    ██   ██ ██   ██ ██   ████ ███████ ███████ ██   ██    ██    ███████
+          
+
+          # ███████  ██████ ██ ████████ ███████ ██████  
+          # ██      ██      ██    ██    ██      ██   ██ 
+          # ███████ ██      ██    ██    █████   ██████  
+          #      ██ ██      ██    ██    ██      ██   ██ 
+          # ███████  ██████ ██    ██    ███████ ██   ██ 
+
+
+          # ███████ ██      ██    ██ ████████ ████████ ███████ ██████  
+          # ██      ██      ██    ██    ██       ██    ██      ██   ██ 
+          # █████   ██      ██    ██    ██       ██    █████   ██████  
+          # ██      ██      ██    ██    ██       ██    ██      ██   ██ 
+          # ██      ███████  ██████     ██       ██    ███████ ██   ██ 
+
+
+          #  █████  ███    ██ ██████  ██████   ██████  ██ ██████  
+          # ██   ██ ████   ██ ██   ██ ██   ██ ██    ██ ██ ██   ██ 
+          # ███████ ██ ██  ██ ██   ██ ██████  ██    ██ ██ ██   ██ 
+          # ██   ██ ██  ██ ██ ██   ██ ██   ██ ██    ██ ██ ██   ██ 
+          # ██   ██ ██   ████ ██████  ██   ██  ██████  ██ ██████  
+                                                       
+                                                        
+
+          # ██████   █████  ███████ ███████ ██     ██  ██████  ██████  ██████  
+          # ██   ██ ██   ██ ██      ██      ██     ██ ██    ██ ██   ██ ██   ██ 
+          # ██████  ███████ ███████ ███████ ██  █  ██ ██    ██ ██████  ██   ██ 
+          # ██      ██   ██      ██      ██ ██ ███ ██ ██    ██ ██   ██ ██   ██ 
+          # ██      ██   ██ ███████ ███████  ███ ███   ██████  ██   ██ ██████  
+
+
       # 提交定制客户端源码
       - name: Commit customize client source code
         continue-on-error: true
@@ -233,14 +282,6 @@ jobs:
           force: true
           github_token: ${{ secrets.WORKFLOW_TOKEN }}
 
-  # 触发清理缓存工作流
-  run-clear-cache:
-    needs: [SetVariables, SynchronizeCustom]
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-      contents: write
-    steps:
       # 触发清理缓存工作流
       - name: Trigger clear cache workflow
         continue-on-error: true
@@ -255,11 +296,7 @@ jobs:
               ref: 'main'
             });
 
-  # 等待清理缓存工作流完成
-  wait-for-clear-cache:
-    needs: run-clear-cache
-    runs-on: ubuntu-latest
-    steps:
+      # 等待清理缓存工作流完成
       - name: Wait for clear cache workflow
         continue-on-error: true
         uses: actions/github-script@v7
@@ -302,11 +339,10 @@ jobs:
             if (attempts >= maxAttempts) {
               console.log('Clear cache workflow did not complete within the expected time, continuing with next steps');
             }
-
-  # 触发 Flutter 构建工作流
-  run-flutter-nightly-build:
-    needs: [SetVariables, SynchronizeCustom, wait-for-clear-cache]
+  # 3. Build (构建阶段)
+  Build:
     runs-on: ubuntu-latest
+    needs: [Initialize, Prepare]
     permissions:
       actions: write
       contents: write
@@ -322,22 +358,9 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               workflow_id: 'flutter-nightly.yml',
-              ref: 'main',
-              inputs: {
-                upload_artifact: 'true',
-                upload_tag: '${{ needs.SetVariables.outputs.tag_name }}'
-              }
+              ref: 'main'
             });
 
-  # 硬重置并强制推送
-  hard-reset-and-cleanup:
-    needs: run-flutter-nightly-build
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-      contents: write
-      pull-requests: write
-    steps:
       # 等待 flutter-nightly 工作流完成
       - name: Wait for flutter-nightly workflow
         continue-on-error: true
@@ -349,6 +372,8 @@ jobs:
             const interval = 60; // 每60秒检查一次
             let attempts = 0;
             
+            console.log('Starting to wait for flutter-nightly.yml workflow...');
+            
             while (attempts < maxAttempts) {
               const runs = await github.rest.actions.listWorkflowRuns({
                 owner: context.repo.owner,
@@ -359,32 +384,32 @@ jobs:
               });
               
               if (runs.data.total_count === 0) {
-                console.log('No workflow runs found, waiting...');
+                console.log('No flutter-nightly.yml workflow runs found, waiting...');
                 await new Promise(resolve => setTimeout(resolve, interval * 1000));
                 attempts++;
                 continue;
               }
 
               const latestRun = runs.data.workflow_runs[0];
-              console.log(`Latest workflow status: ${latestRun.status}, conclusion: ${latestRun.conclusion}`);
+              console.log(`Latest flutter-nightly.yml workflow status: ${latestRun.status}, conclusion: ${latestRun.conclusion}, created_at: ${latestRun.created_at}`);
               
               if (latestRun.status === 'completed') {
                 if (latestRun.conclusion === 'success' || latestRun.conclusion === 'cancelled') {
-                  console.log(`Workflow completed with conclusion: ${latestRun.conclusion}, continuing with next steps`);
+                  console.log(`flutter-nightly.yml workflow completed with conclusion: ${latestRun.conclusion}, continuing with next steps`);
                   break;
                 } else {
-                  console.log(`Workflow failed with conclusion: ${latestRun.conclusion}, continuing with next steps`);
+                  console.log(`flutter-nightly.yml workflow failed with conclusion: ${latestRun.conclusion}, continuing with next steps`);
                   break;
                 }
               }
               
-              console.log(`Workflow still running, attempt ${attempts + 1}/${maxAttempts}`);
+              console.log(`flutter-nightly.yml workflow still running, attempt ${attempts + 1}/${maxAttempts}`);
               await new Promise(resolve => setTimeout(resolve, interval * 1000));
               attempts++;
             }
             
             if (attempts >= maxAttempts) {
-              console.log('Workflow did not complete within the expected time, continuing with next steps');
+              console.log('flutter-nightly.yml workflow did not complete within the expected time, continuing with next steps');
               // 尝试取消正在运行的 workflow
               try {
                 const runs = await github.rest.actions.listWorkflowRuns({
@@ -403,13 +428,28 @@ jobs:
                       repo: context.repo.repo,
                       run_id: latestRun.id
                     });
-                    console.log('Successfully cancelled the running workflow');
+                    console.log('Successfully cancelled the running flutter-nightly.yml workflow');
                   }
                 }
               } catch (error) {
-                console.log('Failed to cancel workflow:', error.message);
+                console.log('Failed to cancel flutter-nightly.yml workflow:', error.message);
               }
             }
+
+  # 4. Finalize (完成阶段)
+  Finalize:
+    runs-on: ubuntu-latest
+    needs: [Initialize, Prepare,Build]
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Flutter build completed
+        run: |
+          echo "Flutter build completed successfully"
+          echo "Tag: ${{ needs.Initialize.outputs.tag_name }}"
+          echo "Proceeding with cleanup..."
 
       #检出 workflow 文件
       - name: Checkout repository
@@ -427,18 +467,14 @@ jobs:
           force: true
           github_token: ${{ secrets.WORKFLOW_TOKEN }}
 
-  # 删除 release 源代码
-  delete-release-source:
-    needs: hard-reset-and-cleanup
-    runs-on: ubuntu-latest
-    steps:
+      # 删除 release 源代码
       - name: Delete source code from release
         continue-on-error: true
         uses: actions/github-script@v7
         with:
           github-token: ${{ github.token }}
           script: |
-            const tag = '${{ needs.SetVariables.outputs.tag }}';
+            const tag = '${{ needs.Initialize.outputs.tag }}';
 
             try {
               // 获取指定标签的 release
@@ -511,14 +547,7 @@ jobs:
               }
             }
 
-  # 删除 workflow 运行
-  delete-workflow-runs:
-    needs: delete-release-source
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-      contents: read
-    steps:
+      # 删除 workflow 运行
       - name: Delete workflow runs
         continue-on-error: true
         uses: Mattraks/delete-workflow-runs@v2
