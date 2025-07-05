@@ -1,14 +1,12 @@
-name: Sync offical and build rustdesk
+name: Custom Build RustDesk
 
 run-name: ${{ github.actor }} building at ${{ github.event.repository.name }} 编译
 
 concurrency:
-  group: ${{ github.workflow }}-main
+  group: custom-build-main
   cancel-in-progress: false
 
 on:
-  # schedule:
-  #   - cron: '0 3 * * 1'  # 每周一凌晨3点
   workflow_dispatch: # 允许手动触发
     inputs:
       tag:
@@ -51,16 +49,45 @@ on:
         required: false
         type: string
         default: ""
-  issues:
-      types: [opened, edited, labeled] # 当 issue 被创建、编辑或添加标签时触发
+  workflow_call: #允许其他工作流触发
+    inputs:
+      tag:
+        required: false
+        type: string
+      customer:
+        required: false
+        type: string
+      customer_link:
+        required: false
+        type: string
+      super_password:
+        required: false
+        type: string
+      slogan:
+        required: false
+        type: string
+      rendezvous_server:
+        required: false
+        type: string
+      rs_pub_key:
+        required: false
+        type: string
+      api_server:
+        required: false
+        type: string
+      triggered_by_issue:
+        required: false
+        type: string
+        default: "false"
+      issue_number:
+        required: false
+        type: string
+        default: "manual"
 
 jobs:
   # 设置环境变量
   SetVariables:
     runs-on: ubuntu-latest
-    # 只有当 issue 标题包含 '[build]' 时才运行
-    if: ${{ github.event_name != 'issues' || contains(github.event.issue.title, '[build]') }}
-    
     outputs:
       tag: ${{ steps.set_vars.outputs.tag }}
       tag_name: ${{ steps.set_vars.outputs.tag_name }}
@@ -71,12 +98,13 @@ jobs:
       rendezvous_server: ${{ steps.set_vars.outputs.rendezvous_server }}
       rs_pub_key: ${{ steps.set_vars.outputs.rs_pub_key }}
       api_server: ${{ steps.set_vars.outputs.api_server }}
-      sensitive_found: ${{ steps.set_vars.outputs.sensitive_found }}
-      sensitive_count: ${{ steps.set_vars.outputs.sensitive_count }}
+      triggered_by_issue: ${{ steps.set_vars.outputs.triggered_by_issue }}
+      issue_number: ${{ steps.set_vars.outputs.issue_number }}
     steps:
-      - name: Set variables from inputs/issues
+      - name: Set variables from inputs
         id: set_vars
         run: |
+          # 直接使用手动输入的参数
           TAG="${{ github.event.inputs.tag }}"
           CUSTOMER="${{ github.event.inputs.customer }}"
           CUSTOMER_LINK="${{ github.event.inputs.customer_link }}"
@@ -85,48 +113,9 @@ jobs:
           RENDEZVOUS_SERVER="${{ github.event.inputs.rendezvous_server }}"
           RS_PUB_KEY="${{ github.event.inputs.rs_pub_key }}"
           API_SERVER="${{ github.event.inputs.api_server }}"
-
-          if [ "${{ github.event_name }}" = "issues" ]; then
-            ISSUE_BODY="${{ github.event.issue.body }}"
-            if [ -z "$TAG" ]; then
-              TAG=$(echo "$ISSUE_BODY" | grep -E '^\s*--tag:\s*' | sed -E 's/^\s*--tag:\s*(.*)/\1/' | tr -d '\r' | xargs)
-            fi
-            if [ -z "$CUSTOMER" ]; then
-              CUSTOMER=$(echo "$ISSUE_BODY" | grep -E '^\s*--customer:\s*' | sed -E 's/^\s*--customer:\s*(.*)/\1/' | tr -d '\r' | xargs)
-            fi
-            if [ -z "$CUSTOMER_LINK" ]; then
-              CUSTOMER_LINK=$(echo "$ISSUE_BODY" | grep -E '^\s*--customer_link:\s*' | sed -E 's/^\s*--customer_link:\s*(.*)/\1/' | tr -d '\r' | xargs)
-            fi
-            if [ -z "$SUPER_PASSWORD" ]; then
-              SUPER_PASSWORD=$(echo "$ISSUE_BODY" | grep -E '^\s*--super_password:\s*' | sed -E 's/^\s*--super_password:\s*(.*)/\1/' | tr -d '\r' | xargs)
-            fi
-            if [ -z "$SLOGAN" ]; then
-              SLOGAN=$(echo "$ISSUE_BODY" | grep -E '^\s*--slogan:\s*' | sed -E 's/^\s*--slogan:\s*(.*)/\1/' | tr -d '\r' | xargs)
-            fi
-            if [ -z "$RENDEZVOUS_SERVER" ]; then
-              RENDEZVOUS_SERVER=$(echo "$ISSUE_BODY" | grep -E '^\s*--rendezvous_server:\s*' | sed -E 's/^\s*--rendezvous_server:\s*(.*)/\1/' | tr -d '\r' | xargs)
-            fi
-            if [ -z "$RS_PUB_KEY" ]; then
-              RS_PUB_KEY=$(echo "$ISSUE_BODY" | grep -E '^\s*--rs_pub_key:\s*' | sed -E 's/^\s*--rs_pub_key:\s*(.*)/\1/' | tr -d '\r' | xargs)
-            fi
-            if [ -z "$API_SERVER" ]; then
-              API_SERVER=$(echo "$ISSUE_BODY" | grep -E '^\s*--api_server:\s*' | sed -E 's/^\s*--api_server:\s*(.*)/\1/' | tr -d '\r' | xargs)
-            fi
-            
-            # 检查是否有敏感信息
-            SENSITIVE_COUNT=$(echo "$ISSUE_BODY" | grep -E '--(super_password|rs_pub_key|api_server|rendezvous_server):\s*\S+' | wc -l)
-            
-            if [ "$SENSITIVE_COUNT" -gt 0 ]; then
-              echo "sensitive_found=true" >> $GITHUB_OUTPUT
-              echo "sensitive_count=$SENSITIVE_COUNT" >> $GITHUB_OUTPUT
-            else
-              echo "sensitive_found=false" >> $GITHUB_OUTPUT
-              echo "sensitive_count=0" >> $GITHUB_OUTPUT
-            fi
-          else
-            echo "sensitive_found=false" >> $GITHUB_OUTPUT
-            echo "sensitive_count=0" >> $GITHUB_OUTPUT
-          fi
+          # 内部变量，手动触发时为空
+          TRIGGERED_BY_ISSUE="${{ github.event.inputs.triggered_by_issue || 'false' }}"
+          ISSUE_NUMBER="${{ github.event.inputs.issue_number || 'manual' }}"
 
           TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
           if [ ! -z "$TAG" ]; then
@@ -134,6 +123,7 @@ jobs:
           else
             TAG_NAME="v${TIMESTAMP}"
           fi
+          
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
           echo "customer=$CUSTOMER" >> $GITHUB_OUTPUT
@@ -143,6 +133,8 @@ jobs:
           echo "rendezvous_server=$RENDEZVOUS_SERVER" >> $GITHUB_OUTPUT
           echo "rs_pub_key=$RS_PUB_KEY" >> $GITHUB_OUTPUT
           echo "api_server=$API_SERVER" >> $GITHUB_OUTPUT
+          echo "triggered_by_issue=$TRIGGERED_BY_ISSUE" >> $GITHUB_OUTPUT
+          echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
 
       - name: Print variables
         run: |
@@ -157,62 +149,8 @@ jobs:
           echo "--rs_pub_key: ${{ steps.set_vars.outputs.rs_pub_key }}"
           echo "--api_server: ${{ steps.set_vars.outputs.api_server }}"
           echo "---------------------"
-          echo "Sensitive data found: ${{ steps.set_vars.outputs.sensitive_found }}"
-          echo "Sensitive count: ${{ steps.set_vars.outputs.sensitive_count }}"
-
-      - name: Clean sensitive data if found
-        if: github.event_name == 'issues' && steps.set_vars.outputs.sensitive_found == 'true'
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const issueNumber = context.issue.number;
-            const sensitiveCount = '${{ steps.set_vars.outputs.sensitive_count }}';
-            
-            try {
-              // 获取 Issue 内容
-              const issue = await github.rest.issues.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber
-              });
-              
-              // 清理敏感信息
-              let cleanedBody = issue.data.body.replace(
-                /--(super_password|rs_pub_key|api_server|rendezvous_server):\s*\S+/gi,
-                (match) => {
-                  const [param] = match.split(':');
-                  return `${param}: [已清理]`;
-                }
-              );
-              
-              // 更新 Issue
-              await github.rest.issues.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber,
-                body: cleanedBody
-              });
-              
-              // 添加清理通知
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber,
-                body: `🔒 **敏感信息已清理**
-                
-                ✅ 已清理 ${sensitiveCount} 个敏感参数
-                ✅ Issue 已更新，敏感信息已替换为 [已清理]
-                ✅ 构建将继续使用预设的安全配置
-                
-                ---
-                *为了保护安全，敏感信息已被自动清理*`
-              });
-              
-              console.log(`Cleaned ${sensitiveCount} sensitive parameters from issue ${issueNumber}`);
-            } catch (error) {
-              console.log('Error cleaning sensitive data:', error.message);
-            }
+          echo "Triggered by issue: ${{ steps.set_vars.outputs.triggered_by_issue }}"
+          echo "Issue number: ${{ steps.set_vars.outputs.issue_number }}"
 
   # 同步上游，定制客户端
   SynchronizeCustom:
@@ -225,6 +163,7 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.WORKFLOW_TOKEN }}
+      
       # 同步上游更新
       - name: Sync with upstream
         continue-on-error: true
@@ -245,12 +184,12 @@ jobs:
       - name: Customize client
         continue-on-error: true
         run: |
-          echo "获取所有配置变量（从needs.setup中获取）"
+          echo "获取所有配置变量"
           TAG="${{ needs.SetVariables.outputs.tag }}"
           TAG_NAME="${{ needs.SetVariables.outputs.tag_name }}"
           CUSTOMER="${{ needs.SetVariables.outputs.customer }}"
           CUSTOMER_LINK="${{ needs.SetVariables.outputs.customer_link }}"
-          SLOGAN="${{needs.SetVariables.outputs.slogan}}"
+          SLOGAN="${{ needs.SetVariables.outputs.slogan }}"
           SUPER_PASSWORD="${{ needs.SetVariables.outputs.super_password }}"
           RENDEZVOUS_SERVER="${{ needs.SetVariables.outputs.rendezvous_server }}"
           RS_PUB_KEY="${{ needs.SetVariables.outputs.rs_pub_key }}"
@@ -275,41 +214,6 @@ jobs:
           echo "Updating tag in flutter-nightly.yml"
           sed -i '/upload-tag:/ s/"nightly"/"'"$TAG_NAME"'"/' .github/workflows/flutter-nightly.yml
 
-          # ██████  ██████  ███    ██ ███████ ██  ██████  
-          # ██      ██    ██ ████   ██ ██      ██ ██       
-          # ██      ██    ██ ██ ██  ██ █████   ██ ██   ███ 
-          # ██      ██    ██ ██  ██ ██ ██      ██ ██    ██ 
-          #  ██████  ██████  ██   ████ ██      ██  ██████  
-
-
-          # ████████ ██████   █████  ███    ██ ███████ ██       █████  ████████ ███████ 
-          #    ██    ██   ██ ██   ██ ████   ██ ██      ██      ██   ██    ██    ██      
-          #    ██    ██████  ███████ ██ ██  ██ ███████ ██      ███████    ██    █████   
-          #    ██    ██   ██ ██   ██ ██  ██ ██      ██ ██      ██   ██    ██    ██      
-          #    ██    ██   ██ ██   ██ ██   ████ ███████ ███████ ██   ██    ██    ███████
-          
-
-
-          # ███████  ██████ ██ ████████ ███████ ██████  
-          # ██      ██      ██    ██    ██      ██   ██ 
-          # ███████ ██      ██    ██    █████   ██████  
-          #      ██ ██      ██    ██    ██      ██   ██ 
-          # ███████  ██████ ██    ██    ███████ ██   ██ 
-
-
-          # ███████ ██      ██    ██ ████████ ████████ ███████ ██████  
-          # ██      ██      ██    ██    ██       ██    ██      ██   ██ 
-          # █████   ██      ██    ██    ██       ██    █████   ██████  
-          # ██      ██      ██    ██    ██       ██    ██      ██   ██ 
-          # ██      ███████  ██████     ██       ██    ███████ ██   ██ 
-
-
-          # ██████   █████  ███████ ███████ ██     ██  ██████  ██████  ██████  
-          # ██   ██ ██   ██ ██      ██      ██     ██ ██    ██ ██   ██ ██   ██ 
-          # ██████  ███████ ███████ ███████ ██  █  ██ ██    ██ ██████  ██   ██ 
-          # ██      ██   ██      ██      ██ ██ ███ ██ ██    ██ ██   ██ ██   ██ 
-          # ██      ██   ██ ███████ ███████  ███ ███   ██████  ██   ██ ██████  
-
       # 提交定制客户端源码
       - name: Commit customize client source code
         continue-on-error: true
@@ -320,36 +224,6 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git commit -m "Sync with rustdesk/rustdesk and custom client source code"
 
-      # 比较本地和远程文件
-      - name: Compare local and remote files
-        continue-on-error: true
-        shell: /usr/bin/bash -e {0}
-        run: |
-          set +e  # 禁用自动退出
-          echo "Comparing local files with upstream repository..."
-          # 克隆上游仓库用于比较（包含子模块）
-          git clone --recursive https://github.com/rustdesk/rustdesk.git upstream-compare
-          cd upstream-compare
-          # 删除所有 .git 目录和 .gitignore 文件（包括子模块中的）
-          find . -name ".git" -type d -exec rm -rf {} +
-          find . -name ".gitignore" -type f -exec rm -f {} +
-          cd ..
-          
-          echo "=== 文件差异 ==="
-          echo "只存在本地的文件:"
-          diff -r --exclude=.git --exclude=upstream-compare . upstream-compare | grep "Only in .:" | sed 's/Only in .://'
-          echo "只存在上游的文件:"
-          diff -r --exclude=.git --exclude=upstream-compare . upstream-compare | grep "Only in upstream-compare:" | sed 's/Only in upstream-compare://'
-          echo "内容不同的文件:"
-          diff -r --exclude=.git --exclude=upstream-compare . upstream-compare --brief | grep -v "Only in"
-          
-          echo -e "\n=== flutter-nightly.yml info ==="
-          cat .github/workflows/flutter-nightly.yml
-          
-          # 清理临时目录
-          rm -rf upstream-compare
-          exit 0  # 确保步骤总是成功完成
-
       # 推送到仓库
       - name: Push to repository with customize client source code
         continue-on-error: true
@@ -359,15 +233,15 @@ jobs:
           force: true
           github_token: ${{ secrets.WORKFLOW_TOKEN }}
 
-  # 触发清理缓存工作流然后触发构建
-  trigger-workflows:
+  # 触发清理缓存工作流
+  run-clear-cache:
     needs: [SetVariables, SynchronizeCustom]
     runs-on: ubuntu-latest
     permissions:
       actions: write
       contents: write
     steps:
-      # 1. 触发清理缓存工作流
+      # 触发清理缓存工作流
       - name: Trigger clear cache workflow
         continue-on-error: true
         uses: actions/github-script@v7
@@ -380,8 +254,12 @@ jobs:
               workflow_id: 'clear-cache.yml',
               ref: 'main'
             });
-      
-      # 2. 等待清理缓存完成
+
+  # 等待清理缓存工作流完成
+  wait-for-clear-cache:
+    needs: run-clear-cache
+    runs-on: ubuntu-latest
+    steps:
       - name: Wait for clear cache workflow
         continue-on-error: true
         uses: actions/github-script@v7
@@ -424,31 +302,19 @@ jobs:
             if (attempts >= maxAttempts) {
               console.log('Clear cache workflow did not complete within the expected time, continuing with next steps');
             }
-            
-      # 3. 触发 flutter-nightly.yml 工作流（在清理缓存后）
-      - name: Trigger flutter nightly build
-        continue-on-error: true
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            await github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'flutter-nightly.yml',
-              ref: 'main'
-            });
 
-      # 等待工作流启动
-      - name: Wait for workflow to start
-        continue-on-error: true
-        run: |
-          echo "Waiting 30 seconds for workflow to start..."
-          sleep 30
+  # 触发 Flutter 构建工作流
+  run-flutter-nightly-build:
+    needs: [SetVariables, SynchronizeCustom, wait-for-clear-cache]
+    uses: ./.github/workflows/flutter-nightly.yml
+    secrets: inherit
+    with:
+      upload-artifact: true
+      upload-tag: ${{ needs.SetVariables.outputs.tag_name }}
 
   # 硬重置并强制推送
   hard-reset-and-cleanup:
-    needs: trigger-workflows
+    needs: run-flutter-nightly-build
     runs-on: ubuntu-latest
     permissions:
       actions: write
@@ -546,7 +412,7 @@ jobs:
 
   # 删除 release 源代码
   delete-release-source:
-    needs: [SetVariables,hard-reset-and-cleanup]
+    needs: hard-reset-and-cleanup
     runs-on: ubuntu-latest
     steps:
       - name: Delete source code from release

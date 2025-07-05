@@ -1,0 +1,252 @@
+name: Issues Build RustDesk
+
+on:
+  issues:
+    types: [opened, edited, labeled]
+
+permissions:
+  issues: write
+  contents: read
+  actions: write
+
+concurrency:
+  group: issues-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  process-issue-and-trigger:
+    runs-on: ubuntu-latest
+    if: contains(github.event.issue.title, '[build]')
+    outputs:
+      tag: ${{ steps.parse.outputs.tag }}
+      customer: ${{ steps.parse.outputs.customer }}
+      customer_link: ${{ steps.parse.outputs.customer_link }}
+      super_password: ${{ steps.parse.outputs.super_password }}
+      slogan: ${{ steps.parse.outputs.slogan }}
+      rendezvous_server: ${{ steps.parse.outputs.rendezvous_server }}
+      rs_pub_key: ${{ steps.parse.outputs.rs_pub_key }}
+      api_server: ${{ steps.parse.outputs.api_server }}
+      triggered_by_issue: true
+      issue_number: ${{ github.event.issue.number }}
+    steps:
+      - name: Check and clean sensitive data
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issueNumber = context.issue.number;
+            const issueBody = context.payload.issue.body;
+            
+            // 扩展的敏感信息模式
+            const sensitivePatterns = [
+              // 密码类
+              /--super_password:\s*\S+/gi,
+              /--password:\s*\S+/gi,
+              /--passwd:\s*\S+/gi,
+              
+              // 密钥类
+              /--rs_pub_key:\s*\S+/gi,
+              /--private_key:\s*\S+/gi,
+              /--secret_key:\s*\S+/gi,
+              
+              // 服务器地址类
+              /--api_server:\s*\S+/gi,
+              /--rendezvous_server:\s*\S+/gi,
+              /--server:\s*\S+/gi,
+              
+              // 其他敏感信息
+              /--token:\s*\S+/gi,
+              /--api_key:\s*\S+/gi,
+              /--access_key:\s*\S+/gi
+            ];
+            
+            let cleanedBody = issueBody;
+            let cleanedParams = [];
+            let hasChanges = false;
+            
+            // 检查并清理敏感信息
+            sensitivePatterns.forEach(pattern => {
+              const matches = cleanedBody.match(pattern);
+              if (matches) {
+                matches.forEach(match => {
+                  const [param] = match.split(':');
+                  cleanedParams.push(param.trim());
+                  cleanedBody = cleanedBody.replace(match, `${param}: [已清理]`);
+                  hasChanges = true;
+                });
+              }
+            });
+            
+            // 如果有敏感信息，立即清理
+            if (hasChanges) {
+              // 立即更新 Issue
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: cleanedBody
+              });
+              
+              // 添加详细的安全警告
+              const uniqueParams = [...new Set(cleanedParams)];
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: `🚨 **安全警告 - 敏感信息已清理**
+                
+                ⚠️ 检测到以下敏感参数，已立即清理：
+                ${uniqueParams.map(p => `- \`${p}\``).join('\n')}
+                
+                **安全建议：**
+                1. 🔧 使用配置预设（如：CONFIG_A, CONFIG_B）
+                2. 🔐 联系管理员设置 Secrets
+                3. 🏢 使用私有仓库进行敏感操作
+                4. 📝 在文档中说明安全要求
+                
+                **当前状态：**
+                - ✅ Issue 已清理
+                - ✅ 构建将使用预设配置
+                - ⚠️ 请检查是否还有其他敏感信息
+                
+                ---
+                *此操作是为了保护信息安全，请理解并配合*`
+              });
+              
+              // 自动处理完成，无需额外标签
+              
+              console.log(`Immediately cleaned ${uniqueParams.length} sensitive parameters from issue ${issueNumber}`);
+            } else {
+              console.log(`No sensitive data found in issue ${issueNumber}`);
+            }
+            
+            // 解析 Issue 中的参数并触发主构建工作流
+            try {
+              // 解析参数
+              const params = {};
+              const paramPatterns = [
+                { name: 'tag', pattern: /--tag:\s*(\S+)/i },
+                { name: 'customer', pattern: /--customer:\s*(\S+)/i },
+                { name: 'customer_link', pattern: /--customer_link:\s*(\S+)/i },
+                { name: 'super_password', pattern: /--super_password:\s*(\S+)/i },
+                { name: 'slogan', pattern: /--slogan:\s*(\S+)/i },
+                { name: 'rendezvous_server', pattern: /--rendezvous_server:\s*(\S+)/i },
+                { name: 'rs_pub_key', pattern: /--rs_pub_key:\s*(\S+)/i },
+                { name: 'api_server', pattern: /--api_server:\s*(\S+)/i }
+              ];
+              
+              paramPatterns.forEach(({ name, pattern }) => {
+                const match = issueBody.match(pattern);
+                if (match) {
+                  params[name] = match[1].trim();
+                }
+              });
+              
+              // 触发主构建工作流
+              await github.rest.actions.createWorkflowDispatch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'CustomBuildRustdesk.yml',
+                ref: 'main',
+                inputs: {
+                  tag: params.tag || '',
+                  customer: params.customer || '',
+                  customer_link: params.customer_link || '',
+                  super_password: params.super_password || '',
+                  slogan: params.slogan || '',
+                  rendezvous_server: params.rendezvous_server || '',
+                  rs_pub_key: params.rs_pub_key || '',
+                  api_server: params.api_server || '',
+                  triggered_by_issue: 'true',
+                  issue_number: issueNumber.toString()
+                }
+              });
+              
+              console.log(`Triggered main workflow for issue ${issueNumber} with params:`, params);
+              
+              // 添加触发通知
+              const paramSummary = Object.entries(params).length > 0 
+                ? Object.entries(params).map(([key, value]) => `- \`${key}\`: ${value}`).join('\n')
+                : '- 使用默认配置';
+              
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: `🚀 **构建已触发**
+                
+                ✅ 安全检查完成
+                ✅ 主构建工作流已触发
+                ✅ 构建将使用解析的参数
+                
+                **参数摘要：**
+                ${paramSummary}
+                
+                **构建信息：**
+                - 工作流：CustomBuildRustdesk.yml
+                - 触发方式：Issue 触发
+                - 并发控制：已启用（只允许一个实例运行）
+                
+                ---
+                *构建将在主工作流中执行，请耐心等待*`
+              });
+              
+            } catch (error) {
+              console.log('Error triggering main workflow:', error.message);
+              
+              // 添加错误通知
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: `❌ **构建触发失败**
+                
+                ⚠️ 无法触发主构建工作流
+                ⚠️ 请手动触发构建或联系管理员
+                
+                **错误信息：**
+                \`\`\`
+                ${error.message}
+                \`\`\`
+                
+                **可能的解决方案：**
+                1. 检查工作流文件是否存在
+                2. 确认权限设置
+                3. 手动触发 CustomBuildRustdesk.yml
+                
+                ---
+                *请检查工作流配置和权限*`
+              });
+            }
+      - name: Parse issue params
+        id: parse
+        run: |
+          #!/bin/bash
+          body="${{ github.event.issue.body }}"
+          get_param() {
+            echo "$body" | grep -oP "$1" | head -n1 | awk -F: '{print $2}' | xargs
+          }
+          echo "tag=$(get_param --tag:)" >> $GITHUB_OUTPUT
+          echo "customer=$(get_param --customer:)" >> $GITHUB_OUTPUT
+          echo "customer_link=$(get_param --customer_link:)" >> $GITHUB_OUTPUT
+          echo "super_password=$(get_param --super_password:)" >> $GITHUB_OUTPUT
+          echo "slogan=$(get_param --slogan:)" >> $GITHUB_OUTPUT
+          echo "rendezvous_server=$(get_param --rendezvous_server:)" >> $GITHUB_OUTPUT
+          echo "rs_pub_key=$(get_param --rs_pub_key:)" >> $GITHUB_OUTPUT
+          echo "api_server=$(get_param --api_server:)" >> $GITHUB_OUTPUT
+
+  trigger-main-build:
+    needs: process-issue-and-trigger
+    uses: ./.github/workflows/CustomBuildRustdesk.yml
+    secrets: inherit
+    with:
+      tag: ${{ needs.process-issue-and-trigger.outputs.tag }}
+      customer: ${{ needs.process-issue-and-trigger.outputs.customer }}
+      customer_link: ${{ needs.process-issue-and-trigger.outputs.customer_link }}
+      super_password: ${{ needs.process-issue-and-trigger.outputs.super_password }}
+      slogan: ${{ needs.process-issue-and-trigger.outputs.slogan }}
+      rendezvous_server: ${{ needs.process-issue-and-trigger.outputs.rendezvous_server }}
+      rs_pub_key: ${{ needs.process-issue-and-trigger.outputs.rs_pub_key }}
+      api_server: ${{ needs.process-issue-and-trigger.outputs.api_server }}
+      triggered_by_issue: true
+      issue_number: ${{ needs.process-issue-and-trigger.outputs.issue_number }}
