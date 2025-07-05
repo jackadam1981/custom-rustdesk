@@ -138,3 +138,432 @@ jobs:
           echo "--api_server: ${{ steps.set_vars.outputs.api_server }}"
           echo "---------------------"
 
+  # 同步上游，定制客户端
+  SynchronizeCustom:
+    runs-on: ubuntu-latest
+    needs: SetVariables
+    steps:
+      #检出 workflow 文件
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_TOKEN }}
+      # 同步上游更新
+      - name: Sync with upstream
+        continue-on-error: true
+        run: |
+          # 克隆上游仓库（带子模块）
+          git clone --recursive https://github.com/rustdesk/rustdesk.git upstream-temp
+          cd upstream-temp
+          # 删除所有 .git 目录和 .gitignore 文件
+          find . -name ".git" -type d -exec rm -rf {} +
+          find . -name ".gitignore" -type f -exec rm -f {} +
+          # 复制所有文件到当前目录
+          cd ..
+          cp -rp upstream-temp/. .
+          # 删除临时目录
+          rm -rf upstream-temp
+
+      # # 定制客户端
+      # - name: Customize client
+      #   continue-on-error: true
+      #   run: |
+      #     echo "获取所有配置变量（从needs.setup中获取）"
+      #     TAG="${{ needs.SetVariables.outputs.tag }}"
+      #     TAG_NAME="${{ needs.SetVariables.outputs.tag_name }}"
+      #     CUSTOMER="${{ needs.SetVariables.outputs.customer }}"
+      #     CUSTOMER_LINK="${{ needs.SetVariables.outputs.customer_link }}"
+      #     SLOGAN="${{needs.SetVariables.outputs.slogan}}"
+      #     SUPER_PASSWORD="${{ needs.SetVariables.outputs.super_password }}"
+      #     RENDEZVOUS_SERVER="${{ needs.SetVariables.outputs.rendezvous_server }}"
+      #     RS_PUB_KEY="${{ needs.SetVariables.outputs.rs_pub_key }}"
+      #     API_SERVER="${{ needs.SetVariables.outputs.api_server }}"
+
+      #     echo "---------------------"
+      #     echo "tag=$TAG"
+      #     echo "tag_name=$TAG_NAME"
+      #     echo "customer=$CUSTOMER"
+      #     echo "customer_link=$CUSTOMER_LINK"
+      #     echo "super_password=$SUPER_PASSWORD"
+      #     echo "slogan=$SLOGAN"
+      #     echo "rendezvous_server=$RENDEZVOUS_SERVER"
+      #     echo "rs_pub_key=$RS_PUB_KEY"
+      #     echo "api_server=$API_SERVER"
+      #     echo "---------------------"
+
+      #     # 删除定时任务
+      #     sed -i '4,6d' .github/workflows/flutter-nightly.yml
+
+      #     # 更新 flutter-nightly.yml 中的标签
+      #     echo "Updating tag in flutter-nightly.yml"
+      #     sed -i '/upload-tag:/ s/"nightly"/"'"$TAG_NAME"'"/' .github/workflows/flutter-nightly.yml
+
+      #     # ██████  ██████  ███    ██ ███████ ██  ██████  
+      #     # ██      ██    ██ ████   ██ ██      ██ ██       
+      #     # ██      ██    ██ ██ ██  ██ █████   ██ ██   ███ 
+      #     # ██      ██    ██ ██  ██ ██ ██      ██ ██    ██ 
+      #     #  ██████  ██████  ██   ████ ██      ██  ██████  
+
+
+      #     # ████████ ██████   █████  ███    ██ ███████ ██       █████  ████████ ███████ 
+      #     #    ██    ██   ██ ██   ██ ████   ██ ██      ██      ██   ██    ██    ██      
+      #     #    ██    ██████  ███████ ██ ██  ██ ███████ ██      ███████    ██    █████   
+      #     #    ██    ██   ██ ██   ██ ██  ██ ██      ██ ██      ██   ██    ██    ██      
+      #     #    ██    ██   ██ ██   ██ ██   ████ ███████ ███████ ██   ██    ██    ███████
+
+
+      #     # ███████  ██████ ██ ████████ ███████ ██████  
+      #     # ██      ██      ██    ██    ██      ██   ██ 
+      #     # ███████ ██      ██    ██    █████   ██████  
+      #     #      ██ ██      ██    ██    ██      ██   ██ 
+      #     # ███████  ██████ ██    ██    ███████ ██   ██ 
+
+
+      #     # ███████ ██      ██    ██ ████████ ████████ ███████ ██████  
+      #     # ██      ██      ██    ██    ██       ██    ██      ██   ██ 
+      #     # █████   ██      ██    ██    ██       ██    █████   ██████  
+      #     # ██      ██      ██    ██    ██       ██    ██      ██   ██ 
+      #     # ██      ███████  ██████     ██       ██    ███████ ██   ██ 
+
+
+      #     # ██████   █████  ███████ ███████ ██     ██  ██████  ██████  ██████  
+      #     # ██   ██ ██   ██ ██      ██      ██     ██ ██    ██ ██   ██ ██   ██ 
+      #     # ██████  ███████ ███████ ███████ ██  █  ██ ██    ██ ██████  ██   ██ 
+      #     # ██      ██   ██      ██      ██ ██ ███ ██ ██    ██ ██   ██ ██   ██ 
+      #     # ██      ██   ██ ███████ ███████  ███ ███   ██████  ██   ██ ██████  
+
+      # 提交定制客户端源码
+      - name: Commit customize client source code
+        continue-on-error: true
+        run: | 
+          # 提交更改
+          git add .
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          git commit -m "Sync with rustdesk/rustdesk and custom client source code"
+
+      # 比较本地和远程文件
+      - name: Compare local and remote files
+        continue-on-error: true
+        shell: /usr/bin/bash -e {0}
+        run: |
+          set +e  # 禁用自动退出
+          echo "Comparing local files with upstream repository..."
+          # 克隆上游仓库用于比较（包含子模块）
+          git clone --recursive https://github.com/rustdesk/rustdesk.git upstream-compare
+          cd upstream-compare
+          # 删除所有 .git 目录和 .gitignore 文件（包括子模块中的）
+          find . -name ".git" -type d -exec rm -rf {} +
+          find . -name ".gitignore" -type f -exec rm -f {} +
+          cd ..
+          
+          echo "=== 文件差异 ==="
+          echo "只存在本地的文件:"
+          diff -r --exclude=.git --exclude=upstream-compare . upstream-compare | grep "Only in .:" | sed 's/Only in .://'
+          echo "只存在上游的文件:"
+          diff -r --exclude=.git --exclude=upstream-compare . upstream-compare | grep "Only in upstream-compare:" | sed 's/Only in upstream-compare://'
+          echo "内容不同的文件:"
+          diff -r --exclude=.git --exclude=upstream-compare . upstream-compare --brief | grep -v "Only in"
+          
+          echo -e "\n=== flutter-nightly.yml info ==="
+          cat .github/workflows/flutter-nightly.yml
+          
+          # 清理临时目录
+          rm -rf upstream-compare
+          exit 0  # 确保步骤总是成功完成
+
+      # 推送到仓库
+      - name: Push to repository with customize client source code
+        continue-on-error: true
+        uses: ad-m/github-push-action@master
+        with:
+          branch: main
+          force: true
+          github_token: ${{ secrets.WORKFLOW_TOKEN }}
+
+  # 触发清理缓存工作流然后触发构建
+  trigger-workflows:
+    needs: [SetVariables, SynchronizeCustom]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+    steps:
+      # 1. 触发清理缓存工作流
+      - name: Trigger clear cache workflow
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.WORKFLOW_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'clear-cache.yml',
+              ref: 'main'
+            });
+      
+      # 2. 等待清理缓存完成
+      - name: Wait for clear cache workflow
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const maxAttempts = 10; // 最多等待10分钟
+            const interval = 30; // 每30秒检查一次
+            let attempts = 0;
+            
+            while (attempts < maxAttempts) {
+              const runs = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'clear-cache.yml',
+                branch: 'main',
+                per_page: 1
+              });
+              
+              if (runs.data.total_count === 0) {
+                console.log('No clear cache workflow runs found, waiting...');
+                await new Promise(resolve => setTimeout(resolve, interval * 1000));
+                attempts++;
+                continue;
+              }
+
+              const latestRun = runs.data.workflow_runs[0];
+              console.log(`Latest clear cache workflow status: ${latestRun.status}, conclusion: ${latestRun.conclusion}`);
+              
+              if (latestRun.status === 'completed') {
+                console.log('Clear cache workflow completed, continuing with next steps');
+                break;
+              }
+              
+              console.log(`Clear cache workflow still running, attempt ${attempts + 1}/${maxAttempts}`);
+              await new Promise(resolve => setTimeout(resolve, interval * 1000));
+              attempts++;
+            }
+            
+            if (attempts >= maxAttempts) {
+              console.log('Clear cache workflow did not complete within the expected time, continuing with next steps');
+            }
+            
+      # 3. 触发 flutter-nightly.yml 工作流（在清理缓存后）
+      - name: Trigger flutter nightly build
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'flutter-nightly.yml',
+              ref: 'main'
+            });
+
+      # 等待工作流启动
+      - name: Wait for workflow to start
+        continue-on-error: true
+        run: |
+          echo "Waiting 30 seconds for workflow to start..."
+          sleep 30
+
+  # 硬重置并强制推送
+  hard-reset-and-cleanup:
+    needs: trigger-workflows
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
+    steps:
+      # 等待 flutter-nightly 工作流完成
+      - name: Wait for flutter-nightly workflow
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const maxAttempts = 180; // 最多等待180分钟
+            const interval = 60; // 每60秒检查一次
+            let attempts = 0;
+            
+            while (attempts < maxAttempts) {
+              const runs = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'flutter-nightly.yml',
+                branch: 'main',
+                per_page: 1
+              });
+              
+              if (runs.data.total_count === 0) {
+                console.log('No workflow runs found, waiting...');
+                await new Promise(resolve => setTimeout(resolve, interval * 1000));
+                attempts++;
+                continue;
+              }
+
+              const latestRun = runs.data.workflow_runs[0];
+              console.log(`Latest workflow status: ${latestRun.status}, conclusion: ${latestRun.conclusion}`);
+              
+              if (latestRun.status === 'completed') {
+                if (latestRun.conclusion === 'success' || latestRun.conclusion === 'cancelled') {
+                  console.log(`Workflow completed with conclusion: ${latestRun.conclusion}, continuing with next steps`);
+                  break;
+                } else {
+                  console.log(`Workflow failed with conclusion: ${latestRun.conclusion}, continuing with next steps`);
+                  break;
+                }
+              }
+              
+              console.log(`Workflow still running, attempt ${attempts + 1}/${maxAttempts}`);
+              await new Promise(resolve => setTimeout(resolve, interval * 1000));
+              attempts++;
+            }
+            
+            if (attempts >= maxAttempts) {
+              console.log('Workflow did not complete within the expected time, continuing with next steps');
+              // 尝试取消正在运行的 workflow
+              try {
+                const runs = await github.rest.actions.listWorkflowRuns({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  workflow_id: 'flutter-nightly.yml',
+                  branch: 'main',
+                  per_page: 1
+                });
+                
+                if (runs.data.total_count > 0) {
+                  const latestRun = runs.data.workflow_runs[0];
+                  if (latestRun.status === 'in_progress') {
+                    await github.rest.actions.cancelWorkflowRun({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      run_id: latestRun.id
+                    });
+                    console.log('Successfully cancelled the running workflow');
+                  }
+                }
+              } catch (error) {
+                console.log('Failed to cancel workflow:', error.message);
+              }
+            }
+
+      #检出 workflow 文件
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_TOKEN }}
+
+      # 推送到仓库
+      - name: Push to repository with sync
+        continue-on-error: true
+        uses: ad-m/github-push-action@master
+        with:
+          branch: main
+          force: true
+          github_token: ${{ secrets.WORKFLOW_TOKEN }}
+
+  # 删除 release 源代码
+  delete-release-source:
+    needs: [SetVariables,hard-reset-and-cleanup]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete source code from release
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const tag = '${{ needs.SetVariables.outputs.tag }}';
+
+            try {
+              // 获取指定标签的 release
+              const { data: release } = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag: tag
+              });
+              
+              // 打印所有资源
+              console.log('All release assets:');
+              for (const asset of release.assets) {
+                console.log(` - ${asset.name} (${asset.id})`);
+              }
+              
+              // 找到并删除源代码资源（使用多种可能的匹配模式）
+              let deletedAssets = 0;
+              for (const asset of release.assets) {
+                // 跳过自动生成的源码包（不能重命名）
+                if (
+                  asset.name.includes('Source code') || 
+                  asset.name.includes('source code')
+                ) {
+                  continue;
+                }
+                // 如果没有前缀，则重命名
+                const prefix = tag ? tag + '_' : '';
+                if (!asset.name.startsWith(prefix)) {
+                  try {
+                    await github.rest.repos.updateReleaseAsset({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      asset_id: asset.id,
+                      name: prefix + asset.name,
+                      label: asset.label
+                    });
+                    console.log(`Renamed asset: ${asset.name} -> ${prefix + asset.name}`);
+                  } catch (e) {
+                    console.log(`Failed to rename asset ${asset.name}: ${e.message}`);
+                  }
+                }
+                // 匹配可能的源代码文件名模式
+                if (
+                  asset.name.endsWith('.zip') || 
+                  asset.name.endsWith('.tar.gz') ||
+                  asset.name.includes('source') ||
+                  asset.name.includes('Source')
+                ) {
+                  console.log(`Deleting asset: ${asset.name}`);
+                  await github.rest.repos.deleteReleaseAsset({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    asset_id: asset.id
+                  });
+                  deletedAssets++;
+                }
+              }
+              
+              if (deletedAssets > 0) {
+                console.log(`Successfully deleted ${deletedAssets} source code assets`);
+              } else {
+                console.log('No source code assets found to delete');
+              }
+            } catch (error) {
+              if (error.status === 404) {
+                console.log('Release not found, skipping deletion');
+              } else {
+                console.log(`Error: ${error.message}`);
+                throw error;
+              }
+            }
+
+  # 删除 workflow 运行
+  delete-workflow-runs:
+    needs: delete-release-source
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Delete workflow runs
+        continue-on-error: true
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          retain_days: 0
+          keep_minimum_runs: 3
