@@ -1,0 +1,39 @@
+name: RustDesk 定制构建
+description: 填写下方参数，自动触发定制构建
+title: "[build] 定制构建请求"
+labels: [build]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请根据需要填写下方参数，未填写的将使用默认值或 secrets。
+        请使用以下格式填写参数（每行一个参数，冒号后面有空格）：
+        ```
+        tag: 标签名称
+        email: 邮件地址
+        customer: 客户名称
+        customer_link: 客户链接
+        super_password: 超级密码
+        slogan: 标语
+        rendezvous_server: 服务器地址
+        rs_pub_key: 公钥
+        api_server: API服务器地址
+        ```
+
+  - type: textarea
+    id: params
+    attributes:
+      label: 构建参数
+      description: 请按照上述格式填写参数，每行一个参数
+      placeholder: |
+        tag: vCustom
+        email: rustdesk@example.com
+        customer: 自由工作室
+        customer_link: https://rustdesk.com
+        super_password: 123456
+        slogan: 安全可靠的远程桌面解决方案
+        rendezvous_server: 1.2.3.4:21117
+        rs_pub_key: xxxxx
+        api_server: https://api.example.com
+    validations:
+      required: false 
