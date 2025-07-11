@@ -186,6 +186,11 @@ jobs:
           echo "RENDEZVOUS_SERVER=$RENDEZVOUS_SERVER" >> $GITHUB_ENV
           echo "API_SERVER=$API_SERVER" >> $GITHUB_ENV
           echo "CURRENT_DATA=$INPUT" >> $GITHUB_ENV
+          
+          # 验证JSON格式
+          echo "Validating JSON format..."
+          echo "$INPUT" | jq . > /dev/null
+          echo "JSON validation passed"
       
       - name: Determine review requirement
         run: |
@@ -357,60 +362,134 @@ jobs:
       - name: Output data
         id: output
         run: |
-          # 直接使用Determine步骤处理后的数据
-          OUTPUT_DATA="${{ env.CURRENT_DATA }}"
+          # 重新获取原始数据并确保JSON格式正确
+          INPUT='${{ fromJson(needs.trigger.outputs.trigger_output) }}'
           
-          echo "data=$OUTPUT_DATA" >> $GITHUB_OUTPUT
+          # 确保输出的是有效的JSON格式
+          echo "data=$INPUT" >> $GITHUB_OUTPUT
           
           # 显示输出信息
-          echo "Review output: $OUTPUT_DATA"
+          echo "Review output: $INPUT"
+          
+          # 验证输出的JSON格式
+          echo "Validating output JSON format..."
+          echo "$INPUT" | jq . > /dev/null
+          echo "Output JSON validation passed"
 
   queue: # 排队阶段
     needs: review
     runs-on: ubuntu-latest
     outputs:
-      queue_output: ${{ toJson(steps.process.outputs.data) }}
+      queue_output: ${{ toJson(steps.output.outputs.data) }}
     steps:
+      - name: Extract data
+        id: extract
+        run: |
+          # 仅提取数据，不进行任何处理
+          INPUT='${{ fromJson(needs.review.outputs.review_output) }}'
+          
+          # 验证输入JSON格式
+          echo "Validating input JSON format..."
+          echo "$INPUT" | jq . > /dev/null
+          echo "Input JSON validation passed"
+          
+          # 设置环境变量供后续步骤使用
+          echo "CURRENT_DATA=$INPUT" >> $GITHUB_ENV
+
       - name: Process data
         id: process
         run: |
-          # 正确获取输入数据
-          INPUT='${{ fromJson(needs.review.outputs.review_output) }}'
-
-          # 使用jq处理并生成紧凑的单行JSON
-          PROCESSED=$(jq -c '.version = "2.0"' <<< "$INPUT")
-          echo "data=$PROCESSED" >> $GITHUB_OUTPUT
+          # 处理数据（添加排队状态）
+          # 从环境变量中安全地提取JSON数据
+          CURRENT_DATA='${{ env.CURRENT_DATA }}'
+          
+          # 验证JSON格式
+          echo "Validating input JSON..."
+          echo "$CURRENT_DATA" | jq . > /dev/null
+          echo "Input JSON validation passed"
+          
+          # 使用jq处理JSON，添加排队状态
+          PROCESSED=$(echo "$CURRENT_DATA" | jq -c --arg queue_time "$(date -Iseconds)" '. + {queued: true, queue_time: $queue_time}')
+          
+          # 验证处理后的JSON格式
+          echo "Validating processed JSON..."
+          echo "$PROCESSED" | jq . > /dev/null
+          echo "Processed JSON validation passed"
+          
+          echo "CURRENT_DATA=$PROCESSED" >> $GITHUB_ENV
 
       - name: Output data
         id: output
         run: |
-          INPUT='${{ fromJson(needs.review.outputs.review_output) }}'
-          OUTPUT_DATA=$(echo "$INPUT" | jq -c '. + {queued: true, queue_time: "'$(date -Iseconds)'"}')
+          # 直接使用Process步骤处理后的数据
+          OUTPUT_DATA='${{ env.CURRENT_DATA }}'
+          
+          # 验证输出JSON格式
+          echo "Validating output JSON format..."
+          echo "$OUTPUT_DATA" | jq . > /dev/null
+          echo "Output JSON validation passed"
+          
           echo "data=$OUTPUT_DATA" >> $GITHUB_OUTPUT
+          
+          # 显示输出信息
           echo "Queue output: $OUTPUT_DATA"
 
   build: # 构建阶段
     needs: queue
     runs-on: ubuntu-latest
     outputs:
-      build_output: ${{ toJson(steps.process.outputs.data) }}
+      build_output: ${{ toJson(steps.output.outputs.data) }}
     steps:
+      - name: Extract data
+        id: extract
+        run: |
+          # 仅提取数据，不进行任何处理
+          INPUT='${{ fromJson(needs.queue.outputs.queue_output) }}'
+          
+          # 验证输入JSON格式
+          echo "Validating input JSON format..."
+          echo "$INPUT" | jq . > /dev/null
+          echo "Input JSON validation passed"
+          
+          # 设置环境变量供后续步骤使用
+          echo "CURRENT_DATA=$INPUT" >> $GITHUB_ENV
+
       - name: Process data
         id: process
         run: |
-          # 正确获取输入数据
-          INPUT='${{ fromJson(needs.queue.outputs.queue_output) }}'
-
-          # 使用jq处理并生成紧凑的单行JSON
-          PROCESSED=$(jq -c '.final = true' <<< "$INPUT")
-          echo "data=$PROCESSED" >> $GITHUB_OUTPUT
+          # 处理数据（添加构建状态）
+          # 从环境变量中安全地提取JSON数据
+          CURRENT_DATA='${{ env.CURRENT_DATA }}'
+          
+          # 验证JSON格式
+          echo "Validating input JSON..."
+          echo "$CURRENT_DATA" | jq . > /dev/null
+          echo "Input JSON validation passed"
+          
+          # 使用jq处理JSON，添加构建状态
+          PROCESSED=$(echo "$CURRENT_DATA" | jq -c --arg build_time "$(date -Iseconds)" '. + {built: true, build_time: $build_time}')
+          
+          # 验证处理后的JSON格式
+          echo "Validating processed JSON..."
+          echo "$PROCESSED" | jq . > /dev/null
+          echo "Processed JSON validation passed"
+          
+          echo "CURRENT_DATA=$PROCESSED" >> $GITHUB_ENV
 
       - name: Output data
         id: output
         run: |
-          INPUT='${{ fromJson(needs.queue.outputs.queue_output) }}'
-          OUTPUT_DATA=$(echo "$INPUT" | jq -c '. + {built: true, build_time: "'$(date -Iseconds)'"}')
+          # 直接使用Process步骤处理后的数据
+          OUTPUT_DATA='${{ env.CURRENT_DATA }}'
+          
+          # 验证输出JSON格式
+          echo "Validating output JSON format..."
+          echo "$OUTPUT_DATA" | jq . > /dev/null
+          echo "Output JSON validation passed"
+          
           echo "data=$OUTPUT_DATA" >> $GITHUB_OUTPUT
+          
+          # 显示输出信息
           echo "Build output: $OUTPUT_DATA"
 
   finish: # 收尾阶段
