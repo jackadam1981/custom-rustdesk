@@ -4,9 +4,55 @@ on:
   issues:
     types: [opened]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "标签名称"
+        required: false
+        default: "vCustom"
+        type: string
+      email:
+        description: "邮件地址"
+        required: false
+        default: "rustdesk@example.com"
+        type: string
+      customer:
+        description: "客户名称"
+        required: false
+        default: "自由工作室"
+        type: string
+      customer_link:
+        description: "客户链接"
+        required: false
+        default: "https://rustdesk.com"
+        type: string
+      super_password:
+        description: "超级密码"
+        required: false
+        default: "123456"
+        type: string
+      slogan:
+        description: "标语"
+        required: false
+        default: "安全可靠的远程桌面解决方案"
+        type: string
+      rendezvous_server:
+        description: "服务器地址"
+        required: false
+        default: "1.2.3.4:21117"
+        type: string
+      rs_pub_key:
+        description: "公钥"
+        required: false
+        default: "xxxxx"
+        type: string
+      api_server:
+        description: "API服务器地址"
+        required: false
+        default: "https://api.example.com"
+        type: string
 
 jobs:
-  trigger:  # 触发阶段
+  trigger: # 触发阶段
     runs-on: ubuntu-latest
     outputs:
       trigger_output: ${{ toJson(steps.setup.outputs.data) }}
@@ -15,13 +61,63 @@ jobs:
         id: setup
         run: |
           echo "Preparing environment..."
+          
+          # 判断触发方式并提取参数
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # 手动触发：使用workflow_dispatch输入参数
+            echo "Manual trigger detected"
+            TAG="${{ github.event.inputs.tag }}"
+            EMAIL="${{ github.event.inputs.email }}"
+            CUSTOMER="${{ github.event.inputs.customer }}"
+            CUSTOMER_LINK="${{ github.event.inputs.customer_link }}"
+            SUPER_PASSWORD="${{ github.event.inputs.super_password }}"
+            SLOGAN="${{ github.event.inputs.slogan }}"
+            RENDEZVOUS_SERVER="${{ github.event.inputs.rendezvous_server }}"
+            RS_PUB_KEY="${{ github.event.inputs.rs_pub_key }}"
+            API_SERVER="${{ github.event.inputs.api_server }}"
+          else
+            # Issue触发：从issue内容中提取参数
+            echo "Issue trigger detected"
+            ISSUE_BODY="${{ github.event.issue.body }}"
+            
+            # 使用grep和sed提取参数值
+            TAG=$(echo "$ISSUE_BODY" | grep -oP 'tag:\s*\K[^\r\n]+' | head -1 || echo "")
+            EMAIL=$(echo "$ISSUE_BODY" | grep -oP 'email:\s*\K[^\r\n]+' | head -1 || echo "")
+            CUSTOMER=$(echo "$ISSUE_BODY" | grep -oP 'customer:\s*\K[^\r\n]+' | head -1 || echo "")
+            CUSTOMER_LINK=$(echo "$ISSUE_BODY" | grep -oP 'customer_link:\s*\K[^\r\n]+' | head -1 || echo "")
+            SUPER_PASSWORD=$(echo "$ISSUE_BODY" | grep -oP 'super_password:\s*\K[^\r\n]+' | head -1 || echo "")
+            SLOGAN=$(echo "$ISSUE_BODY" | grep -oP 'slogan:\s*\K[^\r\n]+' | head -1 || echo "")
+            RENDEZVOUS_SERVER=$(echo "$ISSUE_BODY" | grep -oP 'rendezvous_server:\s*\K[^\r\n]+' | head -1 || echo "")
+            RS_PUB_KEY=$(echo "$ISSUE_BODY" | grep -oP 'rs_pub_key:\s*\K[^\r\n]+' | head -1 || echo "")
+            API_SERVER=$(echo "$ISSUE_BODY" | grep -oP 'api_server:\s*\K[^\r\n]+' | head -1 || echo "")
+          fi
+          
+          # 检查关键参数是否为空，如果为空则使用secrets兜底
+          if [ -z "$RENDEZVOUS_SERVER" ] || [ -z "$RS_PUB_KEY" ]; then
+            echo "Using secrets fallback for missing critical parameters"
+            TAG="${TAG:-${{ secrets.DEFAULT_TAG }}}"
+            EMAIL="${EMAIL:-${{ secrets.DEFAULT_EMAIL }}}"
+            CUSTOMER="${CUSTOMER:-${{ secrets.DEFAULT_CUSTOMER }}}"
+            CUSTOMER_LINK="${CUSTOMER_LINK:-${{ secrets.DEFAULT_CUSTOMER_LINK }}}"
+            SUPER_PASSWORD="${SUPER_PASSWORD:-${{ secrets.DEFAULT_SUPER_PASSWORD }}}"
+            SLOGAN="${SLOGAN:-${{ secrets.DEFAULT_SLOGAN }}}"
+            RENDEZVOUS_SERVER="${RENDEZVOUS_SERVER:-${{ secrets.DEFAULT_RENDEZVOUS_SERVER }}}"
+            RS_PUB_KEY="${RS_PUB_KEY:-${{ secrets.DEFAULT_RS_PUB_KEY }}}"
+            API_SERVER="${API_SERVER:-${{ secrets.DEFAULT_API_SERVER }}}"
+          fi
+          
           # 生成初始JSON数据
           DATA=$(jq -c -n \
-            --arg ready "true" \
-            --arg version "1.0" \
-            --arg var1 "value1" \
-            --arg var2 "value2" \
-            '{ready: $ready, version: $version, additional_vars: {var1: $var1, var2: $var2}}')
+            --arg tag "$TAG" \
+            --arg email "$EMAIL" \
+            --arg customer "$CUSTOMER" \
+            --arg customer_link "$CUSTOMER_LINK" \
+            --arg super_password "$SUPER_PASSWORD" \
+            --arg slogan "$SLOGAN" \
+            --arg rendezvous_server "$RENDEZVOUS_SERVER" \
+            --arg rs_pub_key "$RS_PUB_KEY" \
+            --arg api_server "$API_SERVER" \
+            '{tag: $tag, email: $email, customer: $customer, customer_link: $customer_link, super_password: $super_password, slogan: $slogan, rendezvous_server: $rendezvous_server, rs_pub_key: $rs_pub_key, api_server: $api_server}')
           
           # 存储输出
           echo "data=$DATA" >> $GITHUB_OUTPUT
@@ -32,9 +128,12 @@ jobs:
       - name: Generate config
         run: |
           # 在同一个job中访问数据
-          echo "Version: ${{ fromJson(steps.setup.outputs.data).version }}"
+          echo "Trigger type: ${{ github.event_name }}"
+          echo "Tag: ${{ fromJson(steps.setup.outputs.data).tag }}"
+          echo "Customer: ${{ fromJson(steps.setup.outputs.data).customer }}"
+          echo "Rendezvous Server: ${{ fromJson(steps.setup.outputs.data).rendezvous_server }}"
 
-  review:  # 审核阶段
+  review: # 审核阶段
     needs: trigger
     runs-on: ubuntu-latest
     outputs:
@@ -45,16 +144,16 @@ jobs:
         run: |
           # 正确获取输入数据
           INPUT='${{ fromJson(needs.trigger.outputs.trigger_output) }}'
-          
+
           # 使用jq处理并生成紧凑的单行JSON
           PROCESSED=$(jq -c '. + {processed_by: "review"}' <<< "$INPUT")
           echo "data=$PROCESSED" >> $GITHUB_OUTPUT
-      
+
       - name: Output data
         run: |
           echo "Review output: ${{ steps.process.outputs.data }}"
 
-  queue:  # 排队阶段
+  queue: # 排队阶段
     needs: review
     runs-on: ubuntu-latest
     outputs:
@@ -65,16 +164,16 @@ jobs:
         run: |
           # 正确获取输入数据
           INPUT='${{ fromJson(needs.review.outputs.review_output) }}'
-          
+
           # 使用jq处理并生成紧凑的单行JSON
           PROCESSED=$(jq -c '.version = "2.0"' <<< "$INPUT")
           echo "data=$PROCESSED" >> $GITHUB_OUTPUT
-      
+
       - name: Output data
         run: |
           echo "Queue output: ${{ steps.process.outputs.data }}"
 
-  build:  # 构建阶段
+  build: # 构建阶段
     needs: queue
     runs-on: ubuntu-latest
     outputs:
@@ -85,16 +184,16 @@ jobs:
         run: |
           # 正确获取输入数据
           INPUT='${{ fromJson(needs.queue.outputs.queue_output) }}'
-          
+
           # 使用jq处理并生成紧凑的单行JSON
           PROCESSED=$(jq -c '.final = true' <<< "$INPUT")
           echo "data=$PROCESSED" >> $GITHUB_OUTPUT
-      
+
       - name: Output data
         run: |
           echo "Build output: ${{ steps.process.outputs.data }}"
 
-  finish:  # 收尾阶段
+  finish: # 收尾阶段
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -103,14 +202,14 @@ jobs:
           # 正确获取输入数据
           INPUT='${{ fromJson(needs.build.outputs.build_output) }}'
           echo "FINAL_INPUT=$INPUT" >> $GITHUB_ENV
-      
+
       - name: Final processing
         run: |
           # 使用jq解析单行JSON
           echo "Final data: $FINAL_INPUT"
           echo "Ready status: $(jq -r '.ready' <<< "$FINAL_INPUT")"
           echo "Version: $(jq -r '.version' <<< "$FINAL_INPUT")"
-      
+
       - name: Generate report
         run: |
-          echo "Build completed successfully" 
+          echo "Build completed successfully"
