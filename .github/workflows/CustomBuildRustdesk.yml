@@ -51,6 +51,11 @@ on:
         default: "https://api.example.com"
         type: string
 
+# 添加权限配置
+permissions:
+  issues: write
+  contents: read
+
 jobs:
   trigger: # 触发阶段
     runs-on: ubuntu-latest
@@ -121,6 +126,34 @@ jobs:
           
           # 存储输出
           echo "data=$DATA" >> $GITHUB_OUTPUT
+      
+      - name: Overwrite issue content
+        if: github.event_name == 'issues'
+        run: |
+          # 创建清理后的issue内容
+          CLEANED_BODY="## 构建请求已处理
+
+          **构建参数：**
+          - 标签: ${{ fromJson(steps.setup.outputs.data).tag }}
+          - 客户: ${{ fromJson(steps.setup.outputs.data).customer }}
+          - 标语: ${{ fromJson(steps.setup.outputs.data).slogan }}
+
+          **状态：** 构建已启动
+          **时间：** $(date '+%Y-%m-%d %H:%M:%S')
+
+          ---
+          *敏感信息已自动清理*"
+          
+          # 使用jq正确转义JSON
+          JSON_PAYLOAD=$(jq -n --arg body "$CLEANED_BODY" '{"body": $body}')
+          
+          # 使用GitHub API更新issue
+          curl -X PATCH \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Content-Type: application/json" \
+            https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }} \
+            -d "$JSON_PAYLOAD"
       
       - name: Verify dependencies
         run: echo "Checking system dependencies"
