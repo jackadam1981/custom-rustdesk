@@ -1,69 +1,118 @@
 name: Custom Build Rustdesk
 
 on:
-  # Trigger on issue events
+  # 由issue触发
   issues:
     types: [opened]
-  # Allow manual triggering
+  # 手动触发
   workflow_dispatch:
 
 jobs:
-  job1:
+  job1:  # 初始数据准备
     runs-on: ubuntu-latest
+    outputs:
+      job1_output: ${{ toJson(steps.setup.outputs.data) }}
     steps:
-      - name: Step 1 - Setup framework
-        run: echo "Setting up framework for Job 1"
+      - name: Setup framework
+        id: setup
+        run: |
+          echo "Preparing environment..."
+          # 生成初始JSON数据
+          DATA=$(jq -c -n \
+            --arg ready "true" \
+            --arg version "1.0" \
+            --arg var1 "value1" \
+            --arg var2 "value2" \
+            '{ready: $ready, version: $version, additional_vars: {var1: $var1, var2: $var2}}')
+          
+          # 存储输出
+          echo "data=$DATA" >> $GITHUB_OUTPUT
       
-      - name: Step 2
-        run: echo "Running step 2 for Job 1"
+      - name: Verify dependencies
+        run: echo "Checking system dependencies"
       
-      - name: Step 3
-        run: echo "Running step 3 for Job 1"
+      - name: Generate config
+        run: |
+          # 在同一个job中访问数据
+          echo "Version: ${{ fromJson(steps.setup.outputs.data).version }}"
 
-  job2:
+  job2:  # 数据处理阶段1
+    needs: job1
     runs-on: ubuntu-latest
+    outputs:
+      job2_output: ${{ toJson(steps.process.outputs.data) }}
     steps:
-      - name: Step 1 - Setup framework
-        run: echo "Setting up framework for Job 2"
+      - name: Process data
+        id: process
+        run: |
+          # 正确获取输入数据
+          INPUT='${{ fromJson(needs.job1.outputs.job1_output) }}'
+          
+          # 使用jq处理并生成紧凑的单行JSON
+          PROCESSED=$(jq -c '. + {processed_by: "job2"}' <<< "$INPUT")
+          echo "data=$PROCESSED" >> $GITHUB_OUTPUT
       
-      - name: Step 2
-        run: echo "Running step 2 for Job 2"
-      
-      - name: Step 3
-        run: echo "Running step 3 for Job 2"
+      - name: Output data
+        run: |
+          echo "Job2 output: ${{ steps.process.outputs.data }}"
 
-  job3:
+  job3:  # 数据处理阶段2
+    needs: job2
     runs-on: ubuntu-latest
+    outputs:
+      job3_output: ${{ toJson(steps.process.outputs.data) }}
     steps:
-      - name: Step 1 - Setup framework
-        run: echo "Setting up framework for Job 3"
+      - name: Process data
+        id: process
+        run: |
+          # 正确获取输入数据
+          INPUT='${{ fromJson(needs.job2.outputs.job2_output) }}'
+          
+          # 使用jq处理并生成紧凑的单行JSON
+          PROCESSED=$(jq -c '.version = "2.0"' <<< "$INPUT")
+          echo "data=$PROCESSED" >> $GITHUB_OUTPUT
       
-      - name: Step 2
-        run: echo "Running step 2 for Job 3"
-      
-      - name: Step 3
-        run: echo "Running step 3 for Job 3"
+      - name: Output data
+        run: |
+          echo "Job3 output: ${{ steps.process.outputs.data }}"
 
-  job4:
+  job4:  # 数据处理阶段3
+    needs: job3
     runs-on: ubuntu-latest
+    outputs:
+      job4_output: ${{ toJson(steps.process.outputs.data) }}
     steps:
-      - name: Step 1 - Setup framework
-        run: echo "Setting up framework for Job 4"
+      - name: Process data
+        id: process
+        run: |
+          # 正确获取输入数据
+          INPUT='${{ fromJson(needs.job3.outputs.job3_output) }}'
+          
+          # 使用jq处理并生成紧凑的单行JSON
+          PROCESSED=$(jq -c '.final = true' <<< "$INPUT")
+          echo "data=$PROCESSED" >> $GITHUB_OUTPUT
       
-      - name: Step 2
-        run: echo "Running step 2 for Job 4"
-      
-      - name: Step 3
-        run: echo "Running step 3 for Job 4"
+      - name: Output data
+        run: |
+          echo "Job4 output: ${{ steps.process.outputs.data }}"
 
-  job5:
+  job5:  # 最终处理
+    needs: job4
     runs-on: ubuntu-latest
     steps:
-      - name: Step 1 - Setup framework
-        run: echo "Setting up framework for Job 5"
+      - name: Parse input
+        run: |
+          # 正确获取输入数据
+          INPUT='${{ fromJson(needs.job4.outputs.job4_output) }}'
+          echo "FINAL_INPUT=$INPUT" >> $GITHUB_ENV
       
-      - name: Step 2
-        run: echo "Running step 2 for Job 5"
+      - name: Final processing
+        run: |
+          # 使用jq解析单行JSON
+          echo "Final data: $FINAL_INPUT"
+          echo "Ready status: $(jq -r '.ready' <<< "$FINAL_INPUT")"
+          echo "Version: $(jq -r '.version' <<< "$FINAL_INPUT")"
       
-      - name: Step 3
-        run: echo "Running step 3 for Job 5" 
+      - name: Generate report
+        run: |
+          echo "Build completed successfully" 
