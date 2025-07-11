@@ -1,17 +1,15 @@
 name: Custom Build Rustdesk
 
 on:
-  # 由issue触发
   issues:
     types: [opened]
-  # 手动触发
   workflow_dispatch:
 
 jobs:
-  job1:  # 初始数据准备
+  trigger:  # 触发阶段
     runs-on: ubuntu-latest
     outputs:
-      job1_output: ${{ toJson(steps.setup.outputs.data) }}
+      trigger_output: ${{ toJson(steps.setup.outputs.data) }}
     steps:
       - name: Setup framework
         id: setup
@@ -36,37 +34,37 @@ jobs:
           # 在同一个job中访问数据
           echo "Version: ${{ fromJson(steps.setup.outputs.data).version }}"
 
-  job2:  # 数据处理阶段1
-    needs: job1
+  review:  # 审核阶段
+    needs: trigger
     runs-on: ubuntu-latest
     outputs:
-      job2_output: ${{ toJson(steps.process.outputs.data) }}
+      review_output: ${{ toJson(steps.process.outputs.data) }}
     steps:
       - name: Process data
         id: process
         run: |
           # 正确获取输入数据
-          INPUT='${{ fromJson(needs.job1.outputs.job1_output) }}'
+          INPUT='${{ fromJson(needs.trigger.outputs.trigger_output) }}'
           
           # 使用jq处理并生成紧凑的单行JSON
-          PROCESSED=$(jq -c '. + {processed_by: "job2"}' <<< "$INPUT")
+          PROCESSED=$(jq -c '. + {processed_by: "review"}' <<< "$INPUT")
           echo "data=$PROCESSED" >> $GITHUB_OUTPUT
       
       - name: Output data
         run: |
-          echo "Job2 output: ${{ steps.process.outputs.data }}"
+          echo "Review output: ${{ steps.process.outputs.data }}"
 
-  job3:  # 数据处理阶段2
-    needs: job2
+  queue:  # 排队阶段
+    needs: review
     runs-on: ubuntu-latest
     outputs:
-      job3_output: ${{ toJson(steps.process.outputs.data) }}
+      queue_output: ${{ toJson(steps.process.outputs.data) }}
     steps:
       - name: Process data
         id: process
         run: |
           # 正确获取输入数据
-          INPUT='${{ fromJson(needs.job2.outputs.job2_output) }}'
+          INPUT='${{ fromJson(needs.review.outputs.review_output) }}'
           
           # 使用jq处理并生成紧凑的单行JSON
           PROCESSED=$(jq -c '.version = "2.0"' <<< "$INPUT")
@@ -74,19 +72,19 @@ jobs:
       
       - name: Output data
         run: |
-          echo "Job3 output: ${{ steps.process.outputs.data }}"
+          echo "Queue output: ${{ steps.process.outputs.data }}"
 
-  job4:  # 数据处理阶段3
-    needs: job3
+  build:  # 构建阶段
+    needs: queue
     runs-on: ubuntu-latest
     outputs:
-      job4_output: ${{ toJson(steps.process.outputs.data) }}
+      build_output: ${{ toJson(steps.process.outputs.data) }}
     steps:
       - name: Process data
         id: process
         run: |
           # 正确获取输入数据
-          INPUT='${{ fromJson(needs.job3.outputs.job3_output) }}'
+          INPUT='${{ fromJson(needs.queue.outputs.queue_output) }}'
           
           # 使用jq处理并生成紧凑的单行JSON
           PROCESSED=$(jq -c '.final = true' <<< "$INPUT")
@@ -94,16 +92,16 @@ jobs:
       
       - name: Output data
         run: |
-          echo "Job4 output: ${{ steps.process.outputs.data }}"
+          echo "Build output: ${{ steps.process.outputs.data }}"
 
-  job5:  # 最终处理
-    needs: job4
+  finish:  # 收尾阶段
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Parse input
         run: |
           # 正确获取输入数据
-          INPUT='${{ fromJson(needs.job4.outputs.job4_output) }}'
+          INPUT='${{ fromJson(needs.build.outputs.build_output) }}'
           echo "FINAL_INPUT=$INPUT" >> $GITHUB_ENV
       
       - name: Final processing
