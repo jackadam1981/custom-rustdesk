@@ -170,21 +170,200 @@ jobs:
     needs: trigger
     runs-on: ubuntu-latest
     outputs:
-      review_output: ${{ toJson(steps.process.outputs.data) }}
+      review_output: ${{ toJson(steps.output.outputs.data) }}
     steps:
-      - name: Process data
-        id: process
+      - name: Extract data
+        id: extract
         run: |
-          # 正确获取输入数据
+          # 仅提取数据，不进行任何处理
           INPUT='${{ fromJson(needs.trigger.outputs.trigger_output) }}'
+          
+          # 提取服务器地址
+          RENDEZVOUS_SERVER=$(echo "$INPUT" | jq -r '.rendezvous_server')
+          API_SERVER=$(echo "$INPUT" | jq -r '.api_server')
+          
+          # 设置环境变量供后续步骤使用
+          echo "RENDEZVOUS_SERVER=$RENDEZVOUS_SERVER" >> $GITHUB_ENV
+          echo "API_SERVER=$API_SERVER" >> $GITHUB_ENV
+          echo "CURRENT_DATA=$INPUT" >> $GITHUB_ENV
+      
+      - name: Determine review requirement
+        run: |
+          # 默认需要审核
+          NEED_REVIEW=true
 
-          # 使用jq处理并生成紧凑的单行JSON
-          PROCESSED=$(jq -c '. + {processed_by: "review"}' <<< "$INPUT")
-          echo "data=$PROCESSED" >> $GITHUB_OUTPUT
+          # 仓库所有者免审核
+          if [ "${{ github.actor }}" = "${{ github.repository_owner }}" ]; then
+            echo "Repo owner detected, skipping review."
+            NEED_REVIEW=false
+          fi
+
+          # 检查是否为私有IP地址
+          check_private_ip() {
+            local ip=$1
+            # 移除端口号（如果有）
+            ip=$(echo "$ip" | cut -d: -f1)
+            
+            # 检查10.0.0.0/8
+            if [[ "$ip" =~ ^10\. ]]; then
+              return 0
+            fi
+            
+            # 检查172.16.0.0/12
+            if [[ "$ip" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]]; then
+              return 0
+            fi
+            
+            # 检查192.168.0.0/16
+            if [[ "$ip" =~ ^192\.168\. ]]; then
+              return 0
+            fi
+            
+            return 1
+          }
+          
+          # 检查两个服务器地址
+          RENDEZVOUS_PRIVATE=false
+          API_PRIVATE=false
+          
+          if check_private_ip "${{ env.RENDEZVOUS_SERVER }}"; then
+            RENDEZVOUS_PRIVATE=true
+            echo "Rendezvous server is private IP: ${{ env.RENDEZVOUS_SERVER }}"
+          else
+            echo "Rendezvous server is public IP: ${{ env.RENDEZVOUS_SERVER }}"
+          fi
+          
+          if check_private_ip "${{ env.API_SERVER }}"; then
+            API_PRIVATE=true
+            echo "API server is private IP: ${{ env.API_SERVER }}"
+          else
+            echo "API server is public IP: ${{ env.API_SERVER }}"
+          fi
+          
+          # 判断是否需要审核
+          if [ "$NEED_REVIEW" = "false" ]; then
+            echo "Skipping review due to repo owner or private IP check."
+          else
+            if [ "$RENDEZVOUS_PRIVATE" = "true" ] && [ "$API_PRIVATE" = "true" ]; then
+              NEED_REVIEW=false
+              echo "Both servers are private IPs - no review needed"
+            else
+              NEED_REVIEW=true
+              echo "At least one server is public IP - review required"
+            fi
+          fi
+          
+          # 设置审核标记到环境变量，供后续步骤使用
+          echo "NEED_REVIEW=$NEED_REVIEW" >> $GITHUB_ENV
+      
+      - name: Handle review process
+        if: env.NEED_REVIEW == 'true'
+        run: |
+          echo "Review required. Starting review process..."
+          
+          # 在issue中添加审核状态
+          REVIEW_COMMENT="## 🔍 审核状态
+
+          **需要审核原因：** 检测到公网服务器地址
+          - Rendezvous Server: ${{ env.RENDEZVOUS_SERVER }}
+          - API Server: ${{ env.API_SERVER }}
+
+          **审核要求：** 请管理员回复 '同意构建' 或 '拒绝构建'
+
+          **状态：** 等待审核中 ⏳
+          **时间：** $(date '+%Y-%m-%d %H:%M:%S')"
+          
+          # 使用jq正确转义JSON
+          JSON_PAYLOAD=$(jq -n --arg body "$REVIEW_COMMENT" '{"body": $body}')
+
+          # 添加审核评论
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
+            -d "$(jq -n --arg body "$REVIEW_COMMENT" '{"body": $body}')"
+          
+          # 循环检查审核回复
+          START_TIME=$(date +%s)
+          TIMEOUT=7200  # 2小时超时
+          APPROVED=false
+          
+          while [ $(($(date +%s) - START_TIME)) -lt $TIMEOUT ]; do
+            echo "Checking for admin approval... ($(($(date +%s) - START_TIME))s elapsed)"
+            
+            # 获取issue的最新评论
+            COMMENTS=$(curl -s \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments)
+            
+            # 检查是否有管理员回复
+            # 获取仓库所有者和管理员列表
+            REPO_OWNER="${{ github.repository_owner }}"
+            
+            # 检查是否有管理员回复（包括仓库所有者）
+            if echo "$COMMENTS" | jq -e --arg owner "$REPO_OWNER" '.[] | select(.user.login == $owner or .user.login == "admin" or .user.login == "管理员用户名") | select(.body | contains("同意构建"))' > /dev/null; then
+              APPROVED=true
+              break
+            fi
+            
+            if echo "$COMMENTS" | jq -e --arg owner "$REPO_OWNER" '.[] | select(.user.login == $owner or .user.login == "admin" or .user.login == "管理员用户名") | select(.body | contains("拒绝构建"))' > /dev/null; then
+              echo "Build rejected by admin"
+              exit 1
+            fi
+            
+            # 调试：输出最新的评论信息
+            echo "Latest comments:"
+            echo "$COMMENTS" | jq -r '.[-3:] | .[] | "User: \(.user.login), Body: \(.body[0:100])..."'
+            
+            # 等待30秒后再次检查
+            sleep 30
+          done
+          
+          if [ "$APPROVED" = true ]; then
+            echo "Admin approval received"
+            # 添加审核通过评论
+            APPROVAL_COMMENT="## ✅ 审核通过
+            **状态：** 审核已通过
+            **审核人：** 管理员
+            **时间：** $(date '+%Y-%m-%d %H:%M:%S')
+            构建将继续进行..."
+            
+          # 使用jq正确转义JSON
+          JSON_PAYLOAD=$(jq -n --arg body "$APPROVAL_COMMENT" '{"body": $body}')
+
+            curl -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
+              -d "$(jq -n --arg body "$APPROVAL_COMMENT" '{"body": $body}')"
+          else
+            echo "Review timeout after 2 hours"
+            # 添加超时评论
+            TIMEOUT_COMMENT="## ⏰ 审核超时
+            **状态：** 审核超时（2小时）
+            **时间：** $(date '+%Y-%m-%d %H:%M:%S')
+            构建将自动终止。如需重新构建，请重新提交issue。"
+            
+            curl -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
+              -d "$(jq -n --arg body "$TIMEOUT_COMMENT" '{"body": $body}')"
+            
+            exit 1
+          fi
 
       - name: Output data
+        id: output
         run: |
-          echo "Review output: ${{ steps.process.outputs.data }}"
+          # 直接使用Determine步骤处理后的数据
+          OUTPUT_DATA="${{ env.CURRENT_DATA }}"
+          
+          echo "data=$OUTPUT_DATA" >> $GITHUB_OUTPUT
+          
+          # 显示输出信息
+          echo "Review output: $OUTPUT_DATA"
 
   queue: # 排队阶段
     needs: review
@@ -203,8 +382,12 @@ jobs:
           echo "data=$PROCESSED" >> $GITHUB_OUTPUT
 
       - name: Output data
+        id: output
         run: |
-          echo "Queue output: ${{ steps.process.outputs.data }}"
+          INPUT='${{ fromJson(needs.review.outputs.review_output) }}'
+          OUTPUT_DATA=$(echo "$INPUT" | jq -c '. + {queued: true, queue_time: "'$(date -Iseconds)'"}')
+          echo "data=$OUTPUT_DATA" >> $GITHUB_OUTPUT
+          echo "Queue output: $OUTPUT_DATA"
 
   build: # 构建阶段
     needs: queue
@@ -223,8 +406,12 @@ jobs:
           echo "data=$PROCESSED" >> $GITHUB_OUTPUT
 
       - name: Output data
+        id: output
         run: |
-          echo "Build output: ${{ steps.process.outputs.data }}"
+          INPUT='${{ fromJson(needs.queue.outputs.queue_output) }}'
+          OUTPUT_DATA=$(echo "$INPUT" | jq -c '. + {built: true, build_time: "'$(date -Iseconds)'"}')
+          echo "data=$OUTPUT_DATA" >> $GITHUB_OUTPUT
+          echo "Build output: $OUTPUT_DATA"
 
   finish: # 收尾阶段
     needs: build
