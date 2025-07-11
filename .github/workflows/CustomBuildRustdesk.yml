@@ -171,6 +171,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       review_output: ${{ toJson(steps.output.outputs.data) }}
+      build_approved: ${{ steps.output.outputs.build_approved }}
     steps:
       - name: Extract data
         id: extract
@@ -292,6 +293,7 @@ jobs:
           START_TIME=$(date +%s)
           TIMEOUT=7200  # 2小时超时
           APPROVED=false
+          REJECTED=false # 新增变量，用于标记拒绝
           
           while [ $(($(date +%s) - START_TIME)) -lt $TIMEOUT ]; do
             echo "Checking for admin approval... ($(($(date +%s) - START_TIME))s elapsed)"
@@ -313,8 +315,8 @@ jobs:
             fi
             
             if echo "$COMMENTS" | jq -e --arg owner "$REPO_OWNER" '.[] | select(.user.login == $owner or .user.login == "admin" or .user.login == "管理员用户名") | select(.body | contains("拒绝构建"))' > /dev/null; then
-              echo "Build rejected by admin"
-              exit 1
+              REJECTED=true
+              break
             fi
             
             # 调试：输出最新的评论信息
@@ -342,6 +344,24 @@ jobs:
               -H "Accept: application/vnd.github.v3+json" \
               https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
               -d "$(jq -n --arg body "$APPROVAL_COMMENT" '{"body": $body}')"
+          elif [ "$REJECTED" = true ]; then
+            echo "Build rejected by admin"
+            
+            # 添加拒绝评论
+            REJECT_COMMENT="## ❌ 构建被拒绝
+            **状态：** 构建已被管理员拒绝
+            **时间：** $(date '+%Y-%m-%d %H:%M:%S')
+            构建流程已终止。如需重新构建，请重新提交issue。"
+            
+            curl -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
+              -d "$(jq -n --arg body "$REJECT_COMMENT" '{"body": $body}')"
+            
+            echo "Build rejected by admin - setting build_approved to false"
+            # 设置构建被拒绝标志
+            echo "BUILD_REJECTED=true" >> $GITHUB_ENV
           else
             echo "Review timeout after 2 hours"
             # 添加超时评论
@@ -356,7 +376,9 @@ jobs:
               https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
               -d "$(jq -n --arg body "$TIMEOUT_COMMENT" '{"body": $body}')"
             
-            exit 1
+            echo "Review timeout - setting build_approved to false"
+            # 设置审核超时标志
+            echo "BUILD_TIMEOUT=true" >> $GITHUB_ENV
           fi
 
       - name: Output data
@@ -367,6 +389,18 @@ jobs:
           
           # 确保输出的是有效的JSON格式
           echo "data=$INPUT" >> $GITHUB_OUTPUT
+          
+          # 根据标志设置构建批准状态
+          if [ "${{ env.BUILD_REJECTED }}" = "true" ]; then
+            echo "build_approved=false" >> $GITHUB_OUTPUT
+            echo "Build was rejected by admin"
+          elif [ "${{ env.BUILD_TIMEOUT }}" = "true" ]; then
+            echo "build_approved=false" >> $GITHUB_OUTPUT
+            echo "Build timed out during review"
+          else
+            echo "build_approved=true" >> $GITHUB_OUTPUT
+            echo "Build was approved or no review needed"
+          fi
           
           # 显示输出信息
           echo "Review output: $INPUT"
@@ -379,6 +413,7 @@ jobs:
   queue: # 排队阶段
     needs: review
     runs-on: ubuntu-latest
+    if: needs.review.outputs.build_approved == 'true'
     outputs:
       queue_output: ${{ toJson(steps.output.outputs.data) }}
     steps:
@@ -437,6 +472,7 @@ jobs:
   build: # 构建阶段
     needs: queue
     runs-on: ubuntu-latest
+    if: needs.queue.outputs.queue_output != null
     outputs:
       build_output: ${{ toJson(steps.output.outputs.data) }}
     steps:
@@ -495,6 +531,7 @@ jobs:
   finish: # 收尾阶段
     needs: build
     runs-on: ubuntu-latest
+    if: needs.build.outputs.build_output != null
     steps:
       - name: Parse input
         run: |
