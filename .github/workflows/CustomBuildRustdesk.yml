@@ -182,10 +182,12 @@ jobs:
           # 提取服务器地址
           RENDEZVOUS_SERVER=$(echo "$INPUT" | jq -r '.rendezvous_server')
           API_SERVER=$(echo "$INPUT" | jq -r '.api_server')
+          EMAIL=$(echo "$INPUT" | jq -r '.email')
           
           # 设置环境变量供后续步骤使用
           echo "RENDEZVOUS_SERVER=$RENDEZVOUS_SERVER" >> $GITHUB_ENV
           echo "API_SERVER=$API_SERVER" >> $GITHUB_ENV
+          echo "EMAIL=$EMAIL" >> $GITHUB_ENV
           echo "CURRENT_DATA=$INPUT" >> $GITHUB_ENV
           
           # 验证JSON格式
@@ -195,49 +197,49 @@ jobs:
       
       - name: Auto reject invalid server parameters
         run: |
-          # 检查IP或域名的正则
           is_valid_ip() {
             [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}(:[0-9]+)?$ ]]
           }
-
           is_valid_domain() {
             [[ "$1" =~ ^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(:[0-9]+)?$ ]]
           }
-
           is_valid_url() {
-            # 允许 http(s):// 开头
             local url="$1"
             url="${url#http://}"
             url="${url#https://}"
             is_valid_ip "$url" || is_valid_domain "$url"
           }
-
+          is_email() {
+            [[ "$1" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]
+          }
           AUTO_REJECT_REASON=""
-
-          if ! is_valid_ip "${{ env.RENDEZVOUS_SERVER }}" && ! is_valid_domain "${{ env.RENDEZVOUS_SERVER }}"; then
-            AUTO_REJECT_REASON="rendezvous_server 非法: ${{ env.RENDEZVOUS_SERVER }}"
+          if ! is_valid_ip "$RENDEZVOUS_SERVER" && ! is_valid_domain "$RENDEZVOUS_SERVER"; then
+            AUTO_REJECT_REASON="${AUTO_REJECT_REASON}rendezvous_server 非法: $RENDEZVOUS_SERVER
+          "
           fi
-
-          if ! is_valid_url "${{ env.API_SERVER }}"; then
-            if [ -n "$AUTO_REJECT_REASON" ]; then
-              AUTO_REJECT_REASON="$AUTO_REJECT_REASON; api_server 非法: ${{ env.API_SERVER }}"
-            else
-              AUTO_REJECT_REASON="api_server 非法: ${{ env.API_SERVER }}"
-            fi
+          if ! is_valid_url "$API_SERVER"; then
+            AUTO_REJECT_REASON="${AUTO_REJECT_REASON}api_server 非法: $API_SERVER
+          "
           fi
-
+          if [ -n "$EMAIL" ] && ! is_email "$EMAIL"; then
+            AUTO_REJECT_REASON="${AUTO_REJECT_REASON}email 格式非法: $EMAIL
+          "
+          fi
+          # 去掉最后多余的空行
+          AUTO_REJECT_REASON=$(echo "$AUTO_REJECT_REASON" | sed '/^$/d')
           if [ -n "$AUTO_REJECT_REASON" ]; then
             echo "自动拒绝：$AUTO_REJECT_REASON"
             REJECT_COMMENT="## ❌ 构建被自动拒绝
-            **原因：** $AUTO_REJECT_REASON
+            **原因：**
+            $AUTO_REJECT_REASON
             **时间：** $(date '+%Y-%m-%d %H:%M:%S')
             请检查参数后重新提交issue。"
-            
-            curl -X POST \
-              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              -H "Accept: application/vnd.github.v3+json" \
-              https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
-              -d "$(jq -n --arg body "$REJECT_COMMENT" "{\"body\": \$body}")"
+            echo -e "$REJECT_COMMENT" | jq -Rs '{body: .}' | \
+              curl -X POST \
+                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                -H "Accept: application/vnd.github.v3+json" \
+                https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
+                -d @-
             echo "BUILD_REJECTED=true" >> $GITHUB_ENV
             exit 0
           fi
@@ -282,18 +284,18 @@ jobs:
           RENDEZVOUS_PRIVATE=false
           API_PRIVATE=false
           
-          if check_private_ip "${{ env.RENDEZVOUS_SERVER }}"; then
+          if check_private_ip "$RENDEZVOUS_SERVER"; then
             RENDEZVOUS_PRIVATE=true
-            echo "Rendezvous server is private IP: ${{ env.RENDEZVOUS_SERVER }}"
+            echo "Rendezvous server is private IP: $RENDEZVOUS_SERVER"
           else
-            echo "Rendezvous server is public IP: ${{ env.RENDEZVOUS_SERVER }}"
+            echo "Rendezvous server is public IP: $RENDEZVOUS_SERVER"
           fi
           
-          if check_private_ip "${{ env.API_SERVER }}"; then
+          if check_private_ip "$API_SERVER"; then
             API_PRIVATE=true
-            echo "API server is private IP: ${{ env.API_SERVER }}"
+            echo "API server is private IP: $API_SERVER"
           else
-            echo "API server is public IP: ${{ env.API_SERVER }}"
+            echo "API server is public IP: $API_SERVER"
           fi
           
           # 判断是否需要审核
@@ -321,8 +323,8 @@ jobs:
           REVIEW_COMMENT="## 🔍 审核状态
 
           **需要审核原因：** 检测到公网服务器地址
-          - Rendezvous Server: ${{ env.RENDEZVOUS_SERVER }}
-          - API Server: ${{ env.API_SERVER }}
+          - Rendezvous Server: $RENDEZVOUS_SERVER
+          - API Server: $API_SERVER
 
           **审核要求：** 请管理员回复 '同意构建' 或 '拒绝构建'
 
