@@ -193,7 +193,57 @@ jobs:
           echo "$INPUT" | jq . > /dev/null
           echo "JSON validation passed"
       
+      - name: Auto reject invalid server parameters
+        run: |
+          # 检查IP或域名的正则
+          is_valid_ip() {
+            [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}(:[0-9]+)?$ ]]
+          }
+
+          is_valid_domain() {
+            [[ "$1" =~ ^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(:[0-9]+)?$ ]]
+          }
+
+          is_valid_url() {
+            # 允许 http(s):// 开头
+            local url="$1"
+            url="${url#http://}"
+            url="${url#https://}"
+            is_valid_ip "$url" || is_valid_domain "$url"
+          }
+
+          AUTO_REJECT_REASON=""
+
+          if ! is_valid_ip "${{ env.RENDEZVOUS_SERVER }}" && ! is_valid_domain "${{ env.RENDEZVOUS_SERVER }}"; then
+            AUTO_REJECT_REASON="rendezvous_server 非法: ${{ env.RENDEZVOUS_SERVER }}"
+          fi
+
+          if ! is_valid_url "${{ env.API_SERVER }}"; then
+            if [ -n "$AUTO_REJECT_REASON" ]; then
+              AUTO_REJECT_REASON="$AUTO_REJECT_REASON; api_server 非法: ${{ env.API_SERVER }}"
+            else
+              AUTO_REJECT_REASON="api_server 非法: ${{ env.API_SERVER }}"
+            fi
+          fi
+
+          if [ -n "$AUTO_REJECT_REASON" ]; then
+            echo "自动拒绝：$AUTO_REJECT_REASON"
+            REJECT_COMMENT="## ❌ 构建被自动拒绝
+            **原因：** $AUTO_REJECT_REASON
+            **时间：** $(date '+%Y-%m-%d %H:%M:%S')
+            请检查参数后重新提交issue。"
+            
+            curl -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
+              -d "$(jq -n --arg body "$REJECT_COMMENT" "{\"body\": \$body}")"
+            echo "BUILD_REJECTED=true" >> $GITHUB_ENV
+            exit 0
+          fi
+
       - name: Determine review requirement
+        if: env.BUILD_REJECTED != 'true'
         run: |
           # 默认需要审核
           NEED_REVIEW=true
@@ -263,7 +313,7 @@ jobs:
           echo "NEED_REVIEW=$NEED_REVIEW" >> $GITHUB_ENV
       
       - name: Handle review process
-        if: env.NEED_REVIEW == 'true'
+        if: env.NEED_REVIEW == 'true' && env.BUILD_REJECTED != 'true'
         run: |
           echo "Review required. Starting review process..."
           
@@ -357,7 +407,7 @@ jobs:
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               -H "Accept: application/vnd.github.v3+json" \
               https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
-              -d "$(jq -n --arg body "$REJECT_COMMENT" '{"body": $body}')"
+              -d "$(jq -n --arg body "$REJECT_COMMENT" "{\"body\": \$body}")"
             
             echo "Build rejected by admin - setting build_approved to false"
             # 设置构建被拒绝标志
@@ -374,7 +424,7 @@ jobs:
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               -H "Accept: application/vnd.github.v3+json" \
               https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
-              -d "$(jq -n --arg body "$TIMEOUT_COMMENT" '{"body": $body}')"
+              -d "$(jq -n --arg body "$TIMEOUT_COMMENT" "{\"body\": \$body}")"
             
             echo "Review timeout - setting build_approved to false"
             # 设置审核超时标志
@@ -382,6 +432,7 @@ jobs:
           fi
 
       - name: Output data
+        if: env.BUILD_REJECTED != 'true'
         id: output
         run: |
           # 重新获取原始数据并确保JSON格式正确
