@@ -1,0 +1,109 @@
+name: Delete Issues
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '选择操作模式'
+        required: true
+        default: '模拟模式'
+        type: choice
+        options:
+          - 模拟模式
+          - 删除模式
+
+jobs:
+  delete_issues:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - name: Setup GitHub CLI
+        run: |
+          type -p curl >/dev/null || (sudo apt update && sudo apt install curl -y)
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+          && sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+          && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+          && sudo apt update \
+          && sudo apt install gh -y
+
+      - name: Authenticate and Check Permissions
+        run: |
+          if [ -n "${{ secrets.ISSUE_TOKEN }}" ]; then
+            echo "${{ secrets.ISSUE_TOKEN }}" | gh auth login --with-token
+            echo "✅ 使用Personal Access Token认证"
+          else
+            echo "❌ 未设置ISSUE_TOKEN，请参考quick_setup_guide.md"
+            exit 1
+          fi
+          
+          # 检查权限
+          ADMIN_PERMISSION=$(gh api repos/${{ github.repository }} --jq '.permissions.admin // false')
+          if [ "$ADMIN_PERMISSION" != "true" ]; then
+            echo "❌ 权限不足，需要admin权限"
+            exit 1
+          fi
+
+      - name: List Issues
+        id: list_issues
+        run: |
+          OPEN_ISSUES=$(gh issue list --repo ${{ github.repository }} --state open --limit 100 --json number | jq -r '.[] | select(.number != 1) | .number')
+          CLOSED_ISSUES=$(gh issue list --repo ${{ github.repository }} --state closed --limit 100 --json number | jq -r '.[] | select(.number != 1) | .number')
+          ISSUES=$(echo -e "$OPEN_ISSUES\n$CLOSED_ISSUES" | grep -v '^$' | sort -n | uniq)
+          
+          if [ -z "$ISSUES" ]; then
+            echo "✅ 没有需要删除的issues"
+            echo "ISSUE_COUNT=0" >> $GITHUB_ENV
+            exit 0
+          fi
+          
+          echo "找到 $ISSUES 个issues需要删除"
+          echo "ISSUES_TO_DELETE<<EOF" >> $GITHUB_ENV
+          echo "$ISSUES" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          echo "ISSUE_COUNT=$(echo "$ISSUES" | wc -l)" >> $GITHUB_ENV
+
+      - name: Preview
+        run: |
+          if [ "${{ github.event.inputs.mode }}" = "模拟模式" ]; then
+            echo "🔍 模拟模式：将预览删除 ${{ env.ISSUE_COUNT }} 个issues"
+            echo "要实际删除，请选择 '删除模式'"
+          else
+            echo "⚠️ 删除模式：将删除 ${{ env.ISSUE_COUNT }} 个issues"
+          fi
+
+      - name: Delete Issues
+        if: github.event.inputs.mode == '删除模式'
+        run: |
+          if [ -z "$ISSUES_TO_DELETE" ]; then
+            echo "✅ 没有需要删除的issues"
+            exit 0
+          fi
+          
+          DELETED=0
+          FAILED=0
+          
+          for issue in $ISSUES_TO_DELETE; do
+            if gh issue delete $issue --repo ${{ github.repository }} --yes; then
+              echo "✅ 删除 Issue #$issue"
+              DELETED=$((DELETED + 1))
+            else
+              echo "❌ 删除 Issue #$issue 失败"
+              FAILED=$((FAILED + 1))
+            fi
+            sleep 1
+          done
+          
+          echo "删除完成：成功 $DELETED 个，失败 $FAILED 个"
+
+      - name: Summary
+        run: |
+          if [ "${{ github.event.inputs.mode }}" = "模拟模式" ]; then
+            echo "🔍 模拟完成：发现 ${{ env.ISSUE_COUNT }} 个issues"
+          else
+            echo "🗑️ 删除完成：处理了 ${{ env.ISSUE_COUNT }} 个issues"
+          fi
+          
+          REMAINING=$(gh issue list --repo ${{ github.repository }} --limit 100 --json number | jq -r '.[] | .number')
+          echo "剩余issues：$REMAINING" 
