@@ -507,17 +507,15 @@ jobs:
           echo "Output JSON validation passed"
 
   queue: # 排队阶段
-    needs: review
+    needs: [trigger, review]
     runs-on: ubuntu-latest
     if: needs.review.outputs.build_approved == 'true'
-    outputs:
-      queue_output: ${{ toJson(steps.output.outputs.data) }}
     steps:
       - name: Extract data
         id: extract
         run: |
-          # 提取数据
-          INPUT='${{ fromJson(needs.review.outputs.review_output) }}'
+          # 从trigger阶段获取数据
+          INPUT='${{ fromJson(needs.trigger.outputs.trigger_output) }}'
           
           # 验证输入JSON格式
           echo "Validating input JSON format..."
@@ -712,16 +710,7 @@ jobs:
             CLEANED_WORKFLOW_COUNT=$(echo "$CLEANED_QUEUE_DATA" | jq '.workflow_queue | length // 0')
             CLEANED_TOTAL_COUNT=$((CLEANED_ISSUE_COUNT + CLEANED_WORKFLOW_COUNT))
             
-            # 确保数量不为空
-            if [ -z "$CLEANED_ISSUE_COUNT" ]; then
-              CLEANED_ISSUE_COUNT=0
-            fi
-            if [ -z "$CLEANED_WORKFLOW_COUNT" ]; then
-              CLEANED_WORKFLOW_COUNT=0
-            fi
-            if [ -z "$CLEANED_TOTAL_COUNT" ]; then
-              CLEANED_TOTAL_COUNT=0
-            fi
+            
             
             # 更新队列管理issue
             CLEANED_BODY="## 构建队列管理
@@ -867,16 +856,7 @@ jobs:
           CURRENT_BUILD=$(echo "$QUEUE_DATA" | jq -r '.current_build // null')
           LOCK_HOLDER=$(echo "$QUEUE_DATA" | jq -r '.lock_holder // null')
           
-          # 确保数量不为空
-          if [ -z "$ISSUE_QUEUE_COUNT" ]; then
-            ISSUE_QUEUE_COUNT=0
-          fi
-          if [ -z "$WORKFLOW_QUEUE_COUNT" ]; then
-            WORKFLOW_QUEUE_COUNT=0
-          fi
-          if [ -z "$TOTAL_QUEUE_COUNT" ]; then
-            TOTAL_QUEUE_COUNT=0
-          fi
+
           
           echo "Current issue queue count: $ISSUE_QUEUE_COUNT/3"
           echo "Current workflow queue count: $WORKFLOW_QUEUE_COUNT/5"
@@ -923,10 +903,17 @@ jobs:
       - name: Handle queue full
         if: env.QUEUE_FULL == 'true'
         run: |
-          # 从环境变量获取队列数据
-          QUEUE_DATA='${{ env.QUEUE_DATA }}'
-          ISSUE_QUEUE_COUNT=$(echo "$QUEUE_DATA" | jq '.issue_queue | length')
-          WORKFLOW_QUEUE_COUNT=$(echo "$QUEUE_DATA" | jq '.workflow_queue | length')
+          # 从Issue #1实时获取最新队列数据
+          QUEUE_MANAGER_ISSUE="1"
+          QUEUE_MANAGER_CONTENT=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/$QUEUE_MANAGER_ISSUE")
+          
+          # 解析队列数据
+          QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | grep -oP '```json\K.*?(?=```)' | head -1)
+          ISSUE_QUEUE_COUNT=$(echo "$QUEUE_DATA" | jq '.issue_queue | length // 0')
+          WORKFLOW_QUEUE_COUNT=$(echo "$QUEUE_DATA" | jq '.workflow_queue | length // 0')
           TOTAL_QUEUE_COUNT=$((ISSUE_QUEUE_COUNT + WORKFLOW_QUEUE_COUNT))
           REJECT_REASON='${{ env.REJECT_REASON }}'
           ESTIMATED_WAIT='${{ env.ESTIMATED_WAIT }}'
@@ -964,10 +951,17 @@ jobs:
           # 加入队列
           echo "Joining queue..."
           
-          # 从环境变量获取队列数据
-          QUEUE_DATA='${{ env.QUEUE_DATA }}'
-          CURRENT_BUILD='${{ env.CURRENT_BUILD }}'
-          LOCK_HOLDER='${{ env.LOCK_HOLDER }}'
+          # 从Issue #1实时获取最新队列数据
+          QUEUE_MANAGER_ISSUE="1"
+          QUEUE_MANAGER_CONTENT=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/$QUEUE_MANAGER_ISSUE")
+          
+          # 解析队列数据
+          QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | grep -oP '```json\K.*?(?=```)' | head -1)
+          CURRENT_BUILD=$(echo "$QUEUE_DATA" | jq -r '.current_build // null')
+          LOCK_HOLDER=$(echo "$QUEUE_DATA" | jq -r '.lock_holder // null')
           
           echo "Retrieved queue data: $QUEUE_DATA"
           echo "Current build: $CURRENT_BUILD"
@@ -1021,11 +1015,6 @@ jobs:
           UPDATED_ISSUE_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.issue_queue | length // 0')
           UPDATED_WORKFLOW_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.workflow_queue | length // 0')
           UPDATED_TOTAL_COUNT=$((UPDATED_ISSUE_COUNT + UPDATED_WORKFLOW_COUNT))
-          
-          # 确保数量不为空
-          if [ -z "$UPDATED_ISSUE_COUNT" ]; then UPDATED_ISSUE_COUNT=0; fi
-          if [ -z "$UPDATED_WORKFLOW_COUNT" ]; then UPDATED_WORKFLOW_COUNT=0; fi
-          if [ -z "$UPDATED_TOTAL_COUNT" ]; then UPDATED_TOTAL_COUNT=0; fi
           
           echo "Updated counts - Issue: $UPDATED_ISSUE_COUNT, Workflow: $UPDATED_WORKFLOW_COUNT, Total: $UPDATED_TOTAL_COUNT"
           
@@ -1303,10 +1292,19 @@ jobs:
             echo "Issue in queue: $ISSUE_IN_QUEUE"
             echo "Calculated position: '$CURRENT_POSITION'"
             
-            # 如果issue不在队列中，直接进入构建
+            # 如果issue不在队列中，检查是否已经持有锁
             if [ "$ISSUE_IN_QUEUE" != "true" ]; then
-              echo "Issue not found in queue, proceeding to build..."
-              break
+              echo "Issue not found in queue, checking if we already hold the lock..."
+              LOCK_RUN_ID=$(echo "$CURRENT_QUEUE_DATA" | jq -r '.run_id // empty')
+              if [ "$LOCK_RUN_ID" = "${{ github.run_id }}" ]; then
+                echo "We already hold the lock, proceeding to build..."
+                break
+              else
+                echo "Issue not in queue and we don't hold the lock. This might be an error or duplicate trigger."
+                echo "Current lock holder: $LOCK_HOLDER, run_id: $LOCK_RUN_ID"
+                echo "Exiting to avoid conflicts..."
+                exit 1
+              fi
             fi
             
             # 检查是否是首位
@@ -1458,7 +1456,7 @@ jobs:
                   echo "Verification - Issue count: $VERIFY_ISSUE_COUNT, Workflow count: $VERIFY_WORKFLOW_COUNT"
                   
                   # 验证锁和数据完整性
-                  if [ "$VERIFY_BUILD" = "${{ github.event.issue.number }}" ] && [ "$VERIFY_HOLDER" = "${{ github.actor }}" ] && [ "$VERIFY_RUN_ID" = "${{ github.run_id }}" ]; then
+                  if [ "$VERIFY_RUN_ID" = "${{ github.run_id }}" ]; then
                     if [ "$VERIFY_ISSUE_COUNT" = "$UPDATED_ISSUE_COUNT" ] && [ "$VERIFY_WORKFLOW_COUNT" = "$UPDATED_WORKFLOW_COUNT" ]; then
                       echo "Lock acquisition and data integrity verified successfully!"
                       break
@@ -1544,9 +1542,9 @@ jobs:
               '.workflow_queue = (.workflow_queue | map(select(.issue_number != $issue_number)))')
           fi
           
-          # 计算更新后的队列数量
-          UPDATED_ISSUE_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.issue_queue | length')
-          UPDATED_WORKFLOW_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.workflow_queue | length')
+          # 计算更新后的队列数量 - 使用安全的默认值
+          UPDATED_ISSUE_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.issue_queue | length // 0')
+          UPDATED_WORKFLOW_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.workflow_queue | length // 0')
           UPDATED_TOTAL_COUNT=$((UPDATED_ISSUE_COUNT + UPDATED_WORKFLOW_COUNT))
           
           echo "Updated counts after leaving - Issue: $UPDATED_ISSUE_COUNT, Workflow: $UPDATED_WORKFLOW_COUNT, Total: $UPDATED_TOTAL_COUNT"
@@ -1560,6 +1558,7 @@ jobs:
           - **构建锁状态：** 占用 🔒
           - **当前构建：** ${{ github.event.issue.number }}
           - **锁持有者：** ${{ github.actor }}
+          - **运行ID：** ${{ github.run_id }}
 
           ### Issue队列 (最多3个)
           - 当前数量：$UPDATED_ISSUE_COUNT/3
@@ -1600,61 +1599,19 @@ jobs:
               https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
               -d @-
 
-      - name: Process data
-        if: env.QUEUE_FULL == 'false'
-        id: process
-        run: |
-          # 处理数据（添加队列信息）
-          CURRENT_DATA='${{ env.CURRENT_DATA }}'
-          
-          # 验证JSON格式
-          echo "Validating input JSON..."
-          echo "$CURRENT_DATA" | jq . > /dev/null
-          echo "Input JSON validation passed"
-          
-          # 使用jq处理JSON，添加队列信息
-          PROCESSED=$(echo "$CURRENT_DATA" | jq -c \
-            --arg queue_time "$(date -Iseconds)" \
-            --arg queue_position "$QUEUE_POSITION" \
-            --arg trigger_type "$TRIGGER_TYPE" \
-            '. + {queued: true, queue_time: $queue_time, queue_position: $queue_position, trigger_type: $trigger_type}')
-          
-          # 验证处理后的JSON格式
-          echo "Validating processed JSON..."
-          echo "$PROCESSED" | jq . > /dev/null
-          echo "Processed JSON validation passed"
-          
-          echo "CURRENT_DATA=$PROCESSED" >> $GITHUB_ENV
 
-      - name: Output data
-        if: env.QUEUE_FULL == 'false'
-        id: output
-        run: |
-          # 输出处理后的数据
-          OUTPUT_DATA='${{ env.CURRENT_DATA }}'
-          
-          # 验证输出JSON格式
-          echo "Validating output JSON format..."
-          echo "$OUTPUT_DATA" | jq . > /dev/null
-          echo "Output JSON validation passed"
-          
-          echo "data=$OUTPUT_DATA" >> $GITHUB_OUTPUT
-          
-          # 显示输出信息
-          echo "Queue output: $OUTPUT_DATA"
 
   build: # 构建阶段
-    needs: queue
+    needs: [trigger, queue]
     runs-on: ubuntu-latest
-    if: needs.queue.outputs.queue_output != null
     outputs:
       build_output: ${{ toJson(steps.output.outputs.data) }}
     steps:
       - name: Extract data
         id: extract
         run: |
-          # 仅提取数据，不进行任何处理
-          INPUT='${{ fromJson(needs.queue.outputs.queue_output) }}'
+          # 从trigger阶段获取数据
+          INPUT='${{ fromJson(needs.trigger.outputs.trigger_output) }}'
           
           # 验证输入JSON格式
           echo "Validating input JSON format..."
@@ -1708,14 +1665,13 @@ jobs:
           echo "Build output: $OUTPUT_DATA"
 
   finish: # 收尾阶段
-    needs: build
+    needs: [trigger, build]
     runs-on: ubuntu-latest
-    if: needs.build.outputs.build_output != null
     steps:
       - name: Parse input
         run: |
-          # 正确获取输入数据
-          INPUT='${{ fromJson(needs.build.outputs.build_output) }}'
+          # 从trigger阶段获取最终数据
+          INPUT='${{ fromJson(needs.trigger.outputs.trigger_output) }}'
           echo "FINAL_INPUT=$INPUT" >> $GITHUB_ENV
 
       - name: Release build lock
@@ -1748,11 +1704,6 @@ jobs:
           UPDATED_ISSUE_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.issue_queue | length // 0')
           UPDATED_WORKFLOW_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.workflow_queue | length // 0')
           UPDATED_TOTAL_COUNT=$((UPDATED_ISSUE_COUNT + UPDATED_WORKFLOW_COUNT))
-          
-          # 确保数量不为空
-          if [ -z "$UPDATED_ISSUE_COUNT" ]; then UPDATED_ISSUE_COUNT=0; fi
-          if [ -z "$UPDATED_WORKFLOW_COUNT" ]; then UPDATED_WORKFLOW_COUNT=0; fi
-          if [ -z "$UPDATED_TOTAL_COUNT" ]; then UPDATED_TOTAL_COUNT=0; fi
           
           # 更新队列管理issue
           UPDATED_BODY="## 构建队列管理
