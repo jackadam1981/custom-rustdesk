@@ -154,3 +154,34 @@ A: 查看 GitHub Actions 日志，重新创建 Issue 重试。
 1. 查看 GitHub Actions 日志
 2. 检查 Issue 中的状态更新
 3. 联系仓库管理员
+
+# Rustdesk 自定义构建流程
+
+## 队列限制规则
+- Issue触发：最多排队3个
+- 手动触发（workflow_dispatch）：最多排队5个
+- 总队列：最多5个（无论类型）
+
+## 工作流流程图
+
+```mermaid
+flowchart TD
+    A[新请求] --> B{总队列 < 5?}
+    B -- 否 --> X1[拒绝: 总队列已满]
+    B -- 是 --> C{类型判断}
+    C -- Issue --> D{Issue队列 < 3?}
+    D -- 否 --> X2[拒绝: Issue队列已满]
+    D -- 是 --> Y[允许进队列]
+    C -- Workflow --> E{Workflow队列 < 5?}
+    E -- 否 --> X3[拒绝: Workflow队列已满]
+    E -- 是 --> Y
+    Y --> F[等待队列]
+    F --> G{轮到自己?}
+    G -- 否 --> F
+    G -- 是 --> H[开始构建]
+    H --> I[构建完成]
+```
+
+---
+
+如需详细流程说明，请参见 `.github/workflows/CustomBuildRustdesk.yml`。
