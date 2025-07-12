@@ -85,16 +85,63 @@ jobs:
             echo "Issue trigger detected"
             ISSUE_BODY="${{ github.event.issue.body }}"
             
-            # 使用grep和sed提取参数值
-            TAG=$(echo "$ISSUE_BODY" | grep -oP 'tag:\s*\K[^\r\n]+' | head -1 || echo "")
-            EMAIL=$(echo "$ISSUE_BODY" | grep -oP 'email:\s*\K[^\r\n]+' | head -1 || echo "")
-            CUSTOMER=$(echo "$ISSUE_BODY" | grep -oP 'customer:\s*\K[^\r\n]+' | head -1 || echo "")
-            CUSTOMER_LINK=$(echo "$ISSUE_BODY" | grep -oP 'customer_link:\s*\K[^\r\n]+' | head -1 || echo "")
-            SUPER_PASSWORD=$(echo "$ISSUE_BODY" | grep -oP 'super_password:\s*\K[^\r\n]+' | head -1 || echo "")
-            SLOGAN=$(echo "$ISSUE_BODY" | grep -oP 'slogan:\s*\K[^\r\n]+' | head -1 || echo "")
-            RENDEZVOUS_SERVER=$(echo "$ISSUE_BODY" | grep -oP 'rendezvous_server:\s*\K[^\r\n]+' | head -1 || echo "")
-            RS_PUB_KEY=$(echo "$ISSUE_BODY" | grep -oP 'rs_pub_key:\s*\K[^\r\n]+' | head -1 || echo "")
-            API_SERVER=$(echo "$ISSUE_BODY" | grep -oP 'api_server:\s*\K[^\r\n]+' | head -1 || echo "")
+            # 保存原始issue内容供后续使用
+            echo "ORIGINAL_ISSUE_BODY=$ISSUE_BODY" >> $GITHUB_ENV
+            
+            # 使用grep和sed提取参数值 - 支持多种格式
+            # 格式1: tag: 值 (新格式)
+            # 格式2: --tag: 值 (旧格式)
+            # 格式3: tag=值 (键值对格式)
+            TAG=$(echo "$ISSUE_BODY" | grep -oP '(?:^|\n)(?:--)?tag:\s*\K[^\r\n]+' | head -1 || echo "")
+            EMAIL=$(echo "$ISSUE_BODY" | grep -oP '(?:^|\n)(?:--)?email:\s*\K[^\r\n]+' | head -1 || echo "")
+            CUSTOMER=$(echo "$ISSUE_BODY" | grep -oP '(?:^|\n)(?:--)?customer:\s*\K[^\r\n]+' | head -1 || echo "")
+            CUSTOMER_LINK=$(echo "$ISSUE_BODY" | grep -oP '(?:^|\n)(?:--)?customer_link:\s*\K[^\r\n]+' | head -1 || echo "")
+            SUPER_PASSWORD=$(echo "$ISSUE_BODY" | grep -oP '(?:^|\n)(?:--)?super_password:\s*\K[^\r\n]+' | head -1 || echo "")
+            SLOGAN=$(echo "$ISSUE_BODY" | grep -oP '(?:^|\n)(?:--)?slogan:\s*\K[^\r\n]+' | head -1 || echo "")
+            RENDEZVOUS_SERVER=$(echo "$ISSUE_BODY" | grep -oP '(?:^|\n)(?:--)?rendezvous_server:\s*\K[^\r\n]+' | head -1 || echo "")
+            RS_PUB_KEY=$(echo "$ISSUE_BODY" | grep -oP '(?:^|\n)(?:--)?rs_pub_key:\s*\K[^\r\n]+' | head -1 || echo "")
+            API_SERVER=$(echo "$ISSUE_BODY" | grep -oP '(?:^|\n)(?:--)?api_server:\s*\K[^\r\n]+' | head -1 || echo "")
+            
+            # 如果新格式没有找到，尝试旧格式
+            if [ -z "$TAG" ]; then
+              TAG=$(echo "$ISSUE_BODY" | grep -oP '--tag:\s*\K[^\r\n]+' | head -1 || echo "")
+            fi
+            if [ -z "$EMAIL" ]; then
+              EMAIL=$(echo "$ISSUE_BODY" | grep -oP '--email:\s*\K[^\r\n]+' | head -1 || echo "")
+            fi
+            if [ -z "$CUSTOMER" ]; then
+              CUSTOMER=$(echo "$ISSUE_BODY" | grep -oP '--customer:\s*\K[^\r\n]+' | head -1 || echo "")
+            fi
+            if [ -z "$CUSTOMER_LINK" ]; then
+              CUSTOMER_LINK=$(echo "$ISSUE_BODY" | grep -oP '--customer_link:\s*\K[^\r\n]+' | head -1 || echo "")
+            fi
+            if [ -z "$SUPER_PASSWORD" ]; then
+              SUPER_PASSWORD=$(echo "$ISSUE_BODY" | grep -oP '--super_password:\s*\K[^\r\n]+' | head -1 || echo "")
+            fi
+            if [ -z "$SLOGAN" ]; then
+              SLOGAN=$(echo "$ISSUE_BODY" | grep -oP '--slogan:\s*\K[^\r\n]+' | head -1 || echo "")
+            fi
+            if [ -z "$RENDEZVOUS_SERVER" ]; then
+              RENDEZVOUS_SERVER=$(echo "$ISSUE_BODY" | grep -oP '--rendezvous_server:\s*\K[^\r\n]+' | head -1 || echo "")
+            fi
+            if [ -z "$RS_PUB_KEY" ]; then
+              RS_PUB_KEY=$(echo "$ISSUE_BODY" | grep -oP '--rs_pub_key:\s*\K[^\r\n]+' | head -1 || echo "")
+            fi
+            if [ -z "$API_SERVER" ]; then
+              API_SERVER=$(echo "$ISSUE_BODY" | grep -oP '--api_server:\s*\K[^\r\n]+' | head -1 || echo "")
+            fi
+            
+            # 调试输出提取的参数
+            echo "Extracted parameters:"
+            echo "TAG: '$TAG'"
+            echo "EMAIL: '$EMAIL'"
+            echo "CUSTOMER: '$CUSTOMER'"
+            echo "CUSTOMER_LINK: '$CUSTOMER_LINK'"
+            echo "SUPER_PASSWORD: '$SUPER_PASSWORD'"
+            echo "SLOGAN: '$SLOGAN'"
+            echo "RENDEZVOUS_SERVER: '$RENDEZVOUS_SERVER'"
+            echo "RS_PUB_KEY: '$RS_PUB_KEY'"
+            echo "API_SERVER: '$API_SERVER'"
           fi
           
           # 检查关键参数是否为空，如果为空则使用secrets兜底
@@ -130,7 +177,7 @@ jobs:
       - name: Overwrite issue content
         if: github.event_name == 'issues'
         run: |
-          # 创建清理后的issue内容
+          # 创建清理后的issue内容，保留原始标题和标签
           CLEANED_BODY="## 构建请求已处理
 
           **构建参数：**
@@ -142,7 +189,7 @@ jobs:
           **时间：** $(date '+%Y-%m-%d %H:%M:%S')
 
           ---
-          *敏感信息已自动清理*"
+          *敏感信息已自动清理，原始参数已安全保存*"
           
           # 使用jq正确转义JSON
           JSON_PAYLOAD=$(jq -n --arg body "$CLEANED_BODY" '{"body": $body}')
@@ -538,6 +585,29 @@ jobs:
           # 自动清理队列，处理异常锁和卡住的状态
           echo "Starting automatic queue cleanup..."
           
+          # 通用函数：从队列管理issue中提取JSON数据
+          extract_queue_json() {
+            local issue_content="$1"
+            local queue_data=""
+            
+            # 方法1: 使用grep提取JSON代码块
+            queue_data=$(echo "$issue_content" | jq -r '.body' | grep -oP '```json\K.*?(?=```)' | head -1)
+            
+            # 方法2: 如果方法1失败，使用sed提取
+            if [ -z "$queue_data" ]; then
+              echo "⚠️ Failed to extract JSON with grep, trying sed method..."
+              queue_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | head -1)
+            fi
+            
+            # 方法3: 如果方法2失败，尝试直接解析body
+            if [ -z "$queue_data" ]; then
+              echo "⚠️ Failed to extract JSON with sed, trying direct body parsing..."
+              queue_data=$(echo "$issue_content" | jq -r '.body' | grep -oP '\{[^}]*"queue"[^}]*\}' | head -1)
+            fi
+            
+            echo "$queue_data"
+          }
+          
           QUEUE_MANAGER_ISSUE="1"
           QUEUE_MANAGER_CONTENT=$(curl -s \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
@@ -551,27 +621,31 @@ jobs:
             exit 0
           fi
           
-          # 解析队列数据
-          QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | grep -oP '```json\K.*?(?=```)' | head -1)
+          # 使用通用函数提取队列数据
+          QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
           
-          # 如果提取失败，尝试其他方法
+          # 如果仍然失败，直接重置
           if [ -z "$QUEUE_DATA" ]; then
-            echo "⚠️ Failed to extract JSON with grep, trying alternative method..."
-            QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | head -1)
-          fi
-          
-          # 如果仍然失败，跳过清理
-          if [ -z "$QUEUE_DATA" ]; then
-            echo "No queue data found, skipping cleanup"
-            echo "QUEUE_CLEANED=false" >> $GITHUB_ENV
-            exit 0
+            echo "No queue data found, resetting to empty queue"
+            QUEUE_DATA='{"queue":[],"run_id":null}'
+            NEED_RESET=true
           fi
           
           # 验证JSON格式
           if ! echo "$QUEUE_DATA" | jq . > /dev/null 2>&1; then
-            echo "Invalid JSON format in queue data, skipping cleanup"
-            echo "QUEUE_CLEANED=false" >> $GITHUB_ENV
-            exit 0
+            echo "Invalid JSON format in queue data, resetting to empty queue"
+            QUEUE_DATA='{"queue":[],"run_id":null}'
+            NEED_RESET=true
+          fi
+          
+          # 检查是否是旧格式（包含current_build或lock_holder字段）
+          if [ "$(echo "$QUEUE_DATA" | jq -r 'type')" = "object" ]; then
+            HAS_OLD_FIELDS=$(echo "$QUEUE_DATA" | jq -r 'has("current_build") or has("lock_holder")' 2>/dev/null || echo "false")
+            if [ "$HAS_OLD_FIELDS" = "true" ]; then
+              echo "Old format detected, converting to new simplified format"
+              QUEUE_DATA=$(echo "$QUEUE_DATA" | jq '{queue: .queue, run_id: .run_id // null}')
+              NEED_RESET=true
+            fi
           fi
           
           echo "Current queue data: $QUEUE_DATA"
@@ -579,7 +653,7 @@ jobs:
           # 获取当前状态
           CURRENT_BUILD=$(echo "$QUEUE_DATA" | jq -r '.current_build // null')
           LOCK_HOLDER=$(echo "$QUEUE_DATA" | jq -r '.lock_holder // null')
-          LOCK_RUN_ID=$(echo "$QUEUE_DATA" | jq -r '.run_id // empty')
+          LOCK_RUN_ID=$(echo "$QUEUE_DATA" | jq -r '.run_id // null')
           QUEUE=$(echo "$QUEUE_DATA" | jq -r '.queue // []')
           
           echo "Current build: $CURRENT_BUILD"
@@ -587,8 +661,9 @@ jobs:
           echo "Lock run_id: $LOCK_RUN_ID"
           echo "Queue: $QUEUE"
           
-          # 检查是否需要清理
+          # 检查是否需要清理或重置
           NEED_CLEANUP=false
+          NEED_RESET=false
           CLEANUP_REASON=""
           
           # 1. 检查锁是否异常（有锁但没有持有者，或有持有者但没有锁，或缺少run_id）
@@ -611,7 +686,7 @@ jobs:
           fi
           
           # 2. 检查锁是否长时间占用（超过2小时）
-          if [ "$CURRENT_BUILD" != "null" ] && [ "$CURRENT_BUILD" != "null" ]; then
+          if [ "$CURRENT_BUILD" != "null" ]; then
             # 获取锁持有时间（从队列项中查找）
             LOCK_ISSUE_JOIN_TIME=""
             if [ "$(echo "$QUEUE" | jq -r 'type')" = "array" ]; then
@@ -650,7 +725,7 @@ jobs:
           fi
           
           # 4. 检查队列中是否有已完成的构建
-          if [ "$CURRENT_BUILD" != "null" ] && [ "$CURRENT_BUILD" != "null" ]; then
+          if [ "$CURRENT_BUILD" != "null" ]; then
             # 检查当前构建是否还在队列中
             BUILD_IN_QUEUE=$(echo "$QUEUE" | \
               jq -r --arg issue_number "$CURRENT_BUILD" \
@@ -663,28 +738,38 @@ jobs:
             fi
           fi
           
-          # 执行清理
-          if [ "$NEED_CLEANUP" = true ]; then
+          # 执行清理或重置
+          if [ "$NEED_CLEANUP" = true ] || [ "$NEED_RESET" = true ]; then
             echo "Performing queue cleanup..."
             echo "Cleanup reasons: $CLEANUP_REASON"
             
             # 清理后的队列数据
-            CLEANED_QUEUE_DATA=$(echo "$QUEUE_DATA" | jq '
-              # 移除重复项
-              .queue = (.queue | group_by(.issue_number) | map(.[0]))
-              # 重置异常锁
-              | .current_build = null
-              | .lock_holder = null
-              | .run_id = null
-            ')
+            if [ "$NEED_RESET" = true ]; then
+              # 重置为空队列
+              CLEANED_QUEUE_DATA='{"queue":[],"run_id":null}'
+              CLEANUP_REASON="• 重置：清空队列并转换为新格式\n"
+            else
+              # 清理异常数据
+              CLEANED_QUEUE_DATA=$(echo "$QUEUE_DATA" | jq '
+                # 移除重复项
+                .queue = (.queue | group_by(.issue_number) | map(.[0]))
+                # 重置异常锁
+                | .current_build = null
+                | .lock_holder = null
+                | .run_id = null
+              ')
+            fi
             
             # 计算清理后的队列数量 - 使用安全的默认值
             CLEANED_TOTAL_COUNT=$(echo "$CLEANED_QUEUE_DATA" | jq '.queue | length // 0')
             CLEANED_ISSUE_COUNT=$(echo "$CLEANED_QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "issue")) | length // 0')
             CLEANED_WORKFLOW_COUNT=$(echo "$CLEANED_QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "workflow_dispatch")) | length // 0')
             
+            echo "Cleaned queue data: $CLEANED_QUEUE_DATA"
+            echo "Cleaned counts - Total: $CLEANED_TOTAL_COUNT, Issue: $CLEANED_ISSUE_COUNT, Workflow: $CLEANED_WORKFLOW_COUNT"
+            
             # 更新队列管理issue
-            echo -e "## 构建队列管理
+            UPDATED_BODY="## 构建队列管理
 
             **最后更新时间：** $(date '+%Y-%m-%d %H:%M:%S')
 
@@ -692,7 +777,6 @@ jobs:
             - **构建锁状态：** 空闲 🔓 (已清理)
             - **当前构建：** 无
             - **锁持有者：** 无
-            - **运行ID：** 无
 
             ### 构建队列
             - **当前数量：** $CLEANED_TOTAL_COUNT/5
@@ -709,13 +793,15 @@ jobs:
             ### 队列数据
             \`\`\`json
             $CLEANED_QUEUE_DATA
-            \`\`\`" | jq -Rs '{body: .}' | \
+            \`\`\`"
+            
+            # 使用jq正确转义JSON
             curl -X PATCH \
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               -H "Accept: application/vnd.github.v3+json" \
               -H "Content-Type: application/json" \
               "https://api.github.com/repos/${{ github.repository }}/issues/$QUEUE_MANAGER_ISSUE" \
-              -d @-
+              -d "$(jq -n --arg body "$UPDATED_BODY" '{"body": $body}')"
             
             echo "Queue cleanup completed successfully!"
             echo "Cleaned total count: $CLEANED_TOTAL_COUNT"
@@ -735,6 +821,29 @@ jobs:
         run: |
           # 获取当前队列状态
           echo "Checking current queue status..."
+          
+          # 通用函数：从队列管理issue中提取JSON数据
+          extract_queue_json() {
+            local issue_content="$1"
+            local queue_data=""
+            
+            # 方法1: 使用grep提取JSON代码块
+            queue_data=$(echo "$issue_content" | jq -r '.body' | grep -oP '```json\K.*?(?=```)' | head -1)
+            
+            # 方法2: 如果方法1失败，使用sed提取
+            if [ -z "$queue_data" ]; then
+              echo "⚠️ Failed to extract JSON with grep, trying sed method..."
+              queue_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | head -1)
+            fi
+            
+            # 方法3: 如果方法2失败，尝试直接解析body
+            if [ -z "$queue_data" ]; then
+              echo "⚠️ Failed to extract JSON with sed, trying direct body parsing..."
+              queue_data=$(echo "$issue_content" | jq -r '.body' | grep -oP '\{[^}]*"queue"[^}]*\}' | head -1)
+            fi
+            
+            echo "$queue_data"
+          }
           
           # 队列管理issue编号
           QUEUE_MANAGER_ISSUE="1"
@@ -756,19 +865,13 @@ jobs:
               exit 1
             fi
             
-            # 解析队列数据（从issue body中提取JSON）
-            QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | grep -oP '```json\K.*?(?=```)' | head -1)
-            
-            # 如果提取失败，尝试其他方法
-            if [ -z "$QUEUE_DATA" ]; then
-              echo "⚠️ Failed to extract JSON with grep, trying alternative method..."
-              QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | head -1)
-            fi
+            # 使用通用函数提取队列数据
+            QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
             
             # 如果仍然失败，初始化空队列
             if [ -z "$QUEUE_DATA" ]; then
               echo "Initializing empty queue..."
-              QUEUE_DATA='{"queue":[],"current_build":null,"lock_holder":null,"run_id":null}'
+              QUEUE_DATA='{"queue":[],"run_id":null}'
               
               # 创建初始队列管理内容
               INITIAL_BODY="## 构建队列管理
@@ -802,10 +905,14 @@ jobs:
                 -d "$(jq -n --arg body "$INITIAL_BODY" '{"body": $body}')"
             fi
             
-            # 验证JSON格式
+            # 验证JSON格式并兼容旧版本数据
             if ! echo "$QUEUE_DATA" | jq . > /dev/null 2>&1; then
               echo "❌ Invalid JSON format, using fallback..."
-              QUEUE_DATA='{"queue":[],"current_build":null,"lock_holder":null,"run_id":null}'
+              QUEUE_DATA='{"queue":[],"run_id":null}'
+            else
+              # 兼容旧版本：移除不需要的字段，确保只有queue和run_id
+              QUEUE_DATA=$(echo "$QUEUE_DATA" | jq '{queue: .queue, run_id: .run_id // null}')
+              echo "✅ Queue data normalized to new format"
             fi
           fi
           
@@ -872,6 +979,29 @@ jobs:
       - name: Handle queue full
         if: env.QUEUE_FULL == 'true'
         run: |
+          # 通用函数：从队列管理issue中提取JSON数据
+          extract_queue_json() {
+            local issue_content="$1"
+            local queue_data=""
+            
+            # 方法1: 使用grep提取JSON代码块
+            queue_data=$(echo "$issue_content" | jq -r '.body' | grep -oP '```json\K.*?(?=```)' | head -1)
+            
+            # 方法2: 如果方法1失败，使用sed提取
+            if [ -z "$queue_data" ]; then
+              echo "⚠️ Failed to extract JSON with grep, trying sed method..."
+              queue_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | head -1)
+            fi
+            
+            # 方法3: 如果方法2失败，尝试直接解析body
+            if [ -z "$queue_data" ]; then
+              echo "⚠️ Failed to extract JSON with sed, trying direct body parsing..."
+              queue_data=$(echo "$issue_content" | jq -r '.body' | grep -oP '\{[^}]*"queue"[^}]*\}' | head -1)
+            fi
+            
+            echo "$queue_data"
+          }
+          
           # 从Issue #1实时获取最新队列数据
           QUEUE_MANAGER_ISSUE="1"
           QUEUE_MANAGER_CONTENT=$(curl -s \
@@ -883,21 +1013,15 @@ jobs:
           if echo "$QUEUE_MANAGER_CONTENT" | jq -e '.message' | grep -q "Not Found"; then
             echo "❌ Queue manager issue #$QUEUE_MANAGER_ISSUE not found"
             echo "Creating initial queue data..."
-            QUEUE_DATA='{"issue_queue":[],"workflow_queue":[],"current_build":null,"lock_holder":null,"run_id":null}'
+            QUEUE_DATA='{"queue":[],"run_id":null}'
           else
-            # 解析队列数据
-            QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | grep -oP '```json\K.*?(?=```)' | head -1)
-            
-            # 如果提取失败，尝试其他方法
-            if [ -z "$QUEUE_DATA" ]; then
-              echo "⚠️ Failed to extract JSON with grep, trying alternative method..."
-              QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | head -1)
-            fi
+            # 使用通用函数提取队列数据
+            QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
             
             # 如果仍然失败，使用默认数据
             if [ -z "$QUEUE_DATA" ]; then
               echo "⚠️ Failed to extract JSON, using default queue data..."
-              QUEUE_DATA='{"issue_queue":[],"workflow_queue":[],"current_build":null,"lock_holder":null,"run_id":null}'
+              QUEUE_DATA='{"queue":[],"run_id":null}'
             fi
           fi
           TOTAL_QUEUE_COUNT=$(echo "$QUEUE_DATA" | jq '.queue | length // 0')
@@ -937,6 +1061,29 @@ jobs:
       - name: Join queue
         if: env.QUEUE_FULL == 'false'
         run: |
+          # 通用函数：从队列管理issue中提取JSON数据
+          extract_queue_json() {
+            local issue_content="$1"
+            local queue_data=""
+            
+            # 方法1: 使用grep提取JSON代码块
+            queue_data=$(echo "$issue_content" | jq -r '.body' | grep -oP '```json\K.*?(?=```)' | head -1)
+            
+            # 方法2: 如果方法1失败，使用sed提取
+            if [ -z "$queue_data" ]; then
+              echo "⚠️ Failed to extract JSON with grep, trying sed method..."
+              queue_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | head -1)
+            fi
+            
+            # 方法3: 如果方法2失败，尝试直接解析body
+            if [ -z "$queue_data" ]; then
+              echo "⚠️ Failed to extract JSON with sed, trying direct body parsing..."
+              queue_data=$(echo "$issue_content" | jq -r '.body' | grep -oP '\{[^}]*"queue"[^}]*\}' | head -1)
+            fi
+            
+            echo "$queue_data"
+          }
+          
           # 加入队列
           echo "Joining queue..."
           
@@ -951,30 +1098,33 @@ jobs:
           if echo "$QUEUE_MANAGER_CONTENT" | jq -e '.message' | grep -q "Not Found"; then
             echo "❌ Queue manager issue #$QUEUE_MANAGER_ISSUE not found"
             echo "Creating initial queue data..."
-            QUEUE_DATA='{"issue_queue":[],"workflow_queue":[],"current_build":null,"lock_holder":null,"run_id":null}'
+            QUEUE_DATA='{"queue":[],"run_id":null}'
           else
-            # 解析队列数据
-            QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | grep -oP '```json\K.*?(?=```)' | head -1)
-            
-            # 如果提取失败，尝试其他方法
-            if [ -z "$QUEUE_DATA" ]; then
-              echo "⚠️ Failed to extract JSON with grep, trying alternative method..."
-              QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | head -1)
-            fi
+            # 使用通用函数提取队列数据
+            QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
             
             # 如果仍然失败，使用默认数据
             if [ -z "$QUEUE_DATA" ]; then
               echo "⚠️ Failed to extract JSON, using default queue data..."
-              QUEUE_DATA='{"issue_queue":[],"workflow_queue":[],"current_build":null,"lock_holder":null,"run_id":null}'
+              QUEUE_DATA='{"queue":[],"run_id":null}'
             fi
           fi
           
-          CURRENT_BUILD=$(echo "$QUEUE_DATA" | jq -r '.current_build // null')
-          LOCK_HOLDER=$(echo "$QUEUE_DATA" | jq -r '.lock_holder // null')
+          # 验证JSON格式并兼容旧版本
+          if ! echo "$QUEUE_DATA" | jq . > /dev/null 2>&1; then
+            echo "❌ Invalid JSON format in queue data, using fallback..."
+            QUEUE_DATA='{"queue":[],"run_id":null}'
+          else
+            # 兼容旧版本：移除不需要的字段，确保只有queue和run_id
+            QUEUE_DATA=$(echo "$QUEUE_DATA" | jq '{queue: .queue, run_id: .run_id // null}')
+            echo "✅ Queue data normalized to new format"
+          fi
+          
+          # 兼容旧版本：检查是否有锁
+          LOCK_RUN_ID=$(echo "$QUEUE_DATA" | jq -r '.run_id // null')
           
           echo "Retrieved queue data: $QUEUE_DATA"
-          echo "Current build: $CURRENT_BUILD"
-          echo "Lock holder: $LOCK_HOLDER"
+          echo "Lock run_id: $LOCK_RUN_ID"
           
           # 调试信息
           echo "Queue manager content length: ${#QUEUE_MANAGER_CONTENT}"
@@ -1041,14 +1191,12 @@ jobs:
           echo "UPDATED_QUEUE_DATA keys: $(echo "$UPDATED_QUEUE_DATA" | jq -r 'keys | join(",")')"
           
           # 确定锁状态显示
-          if [ "$CURRENT_BUILD" = "null" ] || [ "$CURRENT_BUILD" = "null" ]; then
+          if [ "$LOCK_RUN_ID" = "null" ]; then
             LOCK_STATUS="空闲 🔓"
-            CURRENT_BUILD_DISPLAY="无"
-            LOCK_HOLDER_DISPLAY="无"
+            LOCK_DISPLAY="无"
           else
             LOCK_STATUS="占用 🔒"
-            CURRENT_BUILD_DISPLAY="$CURRENT_BUILD"
-            LOCK_HOLDER_DISPLAY="$LOCK_HOLDER"
+            LOCK_DISPLAY="运行ID: $LOCK_RUN_ID"
           fi
           
           UPDATED_BODY="## 构建队列管理
@@ -1085,10 +1233,10 @@ jobs:
           
           echo "Issue update completed successfully"
           
-          # 计算队列位置 - 显示当前构建在队列中的位置
+          # 计算队列位置 - 基于加入时间排序
           QUEUE_POSITION=$(echo "$UPDATED_QUEUE_DATA" | \
             jq -r --arg issue_number "$CURRENT_BUILD_ID" \
-            '.queue | map(.issue_number) | index($issue_number) // 0 | . + 1')
+            '.queue | sort_by(.join_time) | map(.issue_number) | index($issue_number) // 0 | . + 1')
           
           # 根据触发类型设置队列限制
           if [ "$TRIGGER_TYPE" = "issue" ]; then
@@ -1193,19 +1341,36 @@ jobs:
               exit 1
             fi
             
-            # 提取队列数据
-            CURRENT_QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | grep -oP '```json\K.*?(?=```)' | head -1)
+            # 通用函数：从队列管理issue中提取JSON数据
+            extract_queue_json() {
+              local issue_content="$1"
+              local queue_data=""
+              
+              # 方法1: 使用grep提取JSON代码块
+              queue_data=$(echo "$issue_content" | jq -r '.body' | grep -oP '```json\K.*?(?=```)' | head -1)
+              
+              # 方法2: 如果方法1失败，使用sed提取
+              if [ -z "$queue_data" ]; then
+                echo "⚠️ Failed to extract JSON with grep, trying sed method..."
+                queue_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | head -1)
+              fi
+              
+              # 方法3: 如果方法2失败，尝试直接解析body
+              if [ -z "$queue_data" ]; then
+                echo "⚠️ Failed to extract JSON with sed, trying direct body parsing..."
+                queue_data=$(echo "$issue_content" | jq -r '.body' | grep -oP '\{[^}]*"queue"[^}]*\}' | head -1)
+              fi
+              
+              echo "$queue_data"
+            }
             
-            # 如果提取失败，尝试其他方法
-            if [ -z "$CURRENT_QUEUE_DATA" ]; then
-              echo "⚠️ Failed to extract JSON with grep, trying alternative method..."
-              CURRENT_QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | head -1)
-            fi
+            # 使用通用函数提取队列数据
+            CURRENT_QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
             
             # 如果仍然失败，使用默认数据
             if [ -z "$CURRENT_QUEUE_DATA" ]; then
               echo "⚠️ Failed to extract JSON, using default queue data..."
-              CURRENT_QUEUE_DATA='{"queue":[],"current_build":null,"lock_holder":null,"run_id":null}'
+              CURRENT_QUEUE_DATA='{"queue":[],"run_id":null}'
             fi
             
             # 验证JSON格式
@@ -1225,13 +1390,13 @@ jobs:
               '.queue | map(.issue_number) | contains([$issue_number])')
             CURRENT_POSITION=$(echo "$CURRENT_QUEUE_DATA" | \
               jq -r --arg issue_number "$CURRENT_BUILD_ID" \
-              '.queue | map(.issue_number) | index($issue_number) // empty | . + 1')
+              '.queue | sort_by(.join_time) | map(.issue_number) | index($issue_number) // empty | . + 1')
             
             echo "Issue in queue: $ISSUE_IN_QUEUE, Position: $CURRENT_POSITION"
             
             # 如果不在队列中，检查是否已经持有锁
             if [ "$ISSUE_IN_QUEUE" != "true" ]; then
-              LOCK_RUN_ID=$(echo "$CURRENT_QUEUE_DATA" | jq -r '.run_id // empty')
+              LOCK_RUN_ID=$(echo "$CURRENT_QUEUE_DATA" | jq -r '.run_id // null')
               if [ "$LOCK_RUN_ID" = "${{ github.run_id }}" ]; then
                 echo "Already holding lock, proceeding to build..."
                 break
@@ -1241,37 +1406,34 @@ jobs:
               fi
             fi
             
-            # 检查是否是首位
-            if [ "$CURRENT_POSITION" != "1" ]; then
-              echo "Not at front of queue (position: $CURRENT_POSITION), waiting..."
+                      # 检查是否是按加入时间排序的首位
+          if [ "$CURRENT_POSITION" != "1" ]; then
+            echo "Not at front of queue (position: $CURRENT_POSITION), waiting..."
+            sleep 30
+            continue
+          fi
+          
+          # 简单锁检查：检查是否有其他run_id占用锁
+          LOCK_RUN_ID=$(echo "$CURRENT_QUEUE_DATA" | jq -r '.run_id // null')
+          
+          if [ "$LOCK_RUN_ID" != "null" ]; then
+            if [ "$LOCK_RUN_ID" = "${{ github.run_id }}" ]; then
+              echo "Already holding lock, proceeding to build..."
+              break
+            else
+              echo "Lock held by run_id: $LOCK_RUN_ID, waiting..."
               sleep 30
               continue
             fi
-            
-            # 检查锁是否可用
-            CURRENT_BUILD=$(echo "$CURRENT_QUEUE_DATA" | jq -r '.current_build // null')
-            LOCK_RUN_ID=$(echo "$CURRENT_QUEUE_DATA" | jq -r '.run_id // empty')
-            
-            if [ "$CURRENT_BUILD" != "null" ] && [ "$CURRENT_BUILD" != "null" ]; then
-              if [ "$LOCK_RUN_ID" = "${{ github.run_id }}" ]; then
-                echo "Already holding lock, proceeding to build..."
-                break
-              else
-                echo "Lock held by another process, waiting..."
-                sleep 30
-                continue
-              fi
-            fi
+          fi
             
             # 尝试获取锁
             echo "Attempting to acquire lock..."
             
-            # 获取锁
+            # 简单获取锁：只设置run_id
             UPDATED_QUEUE_DATA=$(echo "$CURRENT_QUEUE_DATA" | \
-              jq --arg issue_number "$CURRENT_BUILD_ID" \
-              --arg user "${{ github.actor }}" \
-              --arg run_id "${{ github.run_id }}" \
-              '.current_build = $issue_number | .lock_holder = $user | .run_id = $run_id')
+              jq --arg run_id "${{ github.run_id }}" \
+              '.run_id = $run_id')
             
             # 计算队列数量
             UPDATED_TOTAL_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.queue | length // 0')
@@ -1284,10 +1446,9 @@ jobs:
             **最后更新时间：** $(date '+%Y-%m-%d %H:%M:%S')
 
             ### 当前状态
-            - **构建锁状态：** 占用 🔒
-            - **当前构建：** $CURRENT_BUILD_ID
-            - **锁持有者：** ${{ github.actor }}
-            - **运行ID：** ${{ github.run_id }}
+            - **构建锁状态：** 占用 🔒 (run_id: ${{ github.run_id }})
+            - **当前构建：** 队列首位
+            - **锁持有者：** 运行ID: ${{ github.run_id }}
 
             ### 构建队列
             - **当前数量：** $UPDATED_TOTAL_COUNT/5
@@ -1358,19 +1519,36 @@ jobs:
             exit 1
           fi
           
-          # 解析当前队列数据
-          CURRENT_QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | grep -oP '```json\K.*?(?=```)' | head -1)
+          # 通用函数：从队列管理issue中提取JSON数据
+          extract_queue_json() {
+            local issue_content="$1"
+            local queue_data=""
+            
+            # 方法1: 使用grep提取JSON代码块
+            queue_data=$(echo "$issue_content" | jq -r '.body' | grep -oP '```json\K.*?(?=```)' | head -1)
+            
+            # 方法2: 如果方法1失败，使用sed提取
+            if [ -z "$queue_data" ]; then
+              echo "⚠️ Failed to extract JSON with grep, trying sed method..."
+              queue_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | head -1)
+            fi
+            
+            # 方法3: 如果方法2失败，尝试直接解析body
+            if [ -z "$queue_data" ]; then
+              echo "⚠️ Failed to extract JSON with sed, trying direct body parsing..."
+              queue_data=$(echo "$issue_content" | jq -r '.body' | grep -oP '\{[^}]*"queue"[^}]*\}' | head -1)
+            fi
+            
+            echo "$queue_data"
+          }
           
-          # 如果提取失败，尝试其他方法
-          if [ -z "$CURRENT_QUEUE_DATA" ]; then
-            echo "⚠️ Failed to extract JSON with grep, trying alternative method..."
-            CURRENT_QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | head -1)
-          fi
+          # 使用通用函数提取队列数据
+          CURRENT_QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
           
           # 如果仍然失败，使用默认数据
           if [ -z "$CURRENT_QUEUE_DATA" ]; then
             echo "⚠️ Failed to extract JSON, using default queue data..."
-            CURRENT_QUEUE_DATA='{"queue":[],"current_build":null,"lock_holder":null,"run_id":null}'
+            CURRENT_QUEUE_DATA='{"queue":[],"run_id":null}'
           fi
           
           # 验证JSON格式
@@ -1388,7 +1566,7 @@ jobs:
             CURRENT_BUILD_ID="${{ github.event.issue.number }}"
           fi
           
-          # 从队列中移除当前构建
+          # 从队列中移除当前构建，但保持锁状态
           UPDATED_QUEUE_DATA=$(echo "$CURRENT_QUEUE_DATA" | \
             jq --arg issue_number "$CURRENT_BUILD_ID" \
             '.queue = (.queue | map(select(.issue_number != $issue_number)))')
@@ -1400,16 +1578,15 @@ jobs:
           
           echo "Updated counts after leaving - Total: $UPDATED_TOTAL_COUNT, Issue: $UPDATED_ISSUE_COUNT, Workflow: $UPDATED_WORKFLOW_COUNT"
           
-          # 更新队列管理issue
+          # 更新队列管理issue - 保持锁状态，因为构建正在进行
           UPDATED_BODY="## 构建队列管理
 
           **最后更新时间：** $(date '+%Y-%m-%d %H:%M:%S')
 
           ### 当前状态
-          - **构建锁状态：** 占用 🔒
-          - **当前构建：** $CURRENT_BUILD_ID
-          - **锁持有者：** ${{ github.actor }}
-          - **运行ID：** ${{ github.run_id }}
+          - **构建锁状态：** 占用 🔒 (构建中 - run_id: ${{ github.run_id }})
+          - **当前构建：** 队列首位
+          - **锁持有者：** 运行ID: ${{ github.run_id }}
 
           ### 构建队列
           - **当前数量：** $UPDATED_TOTAL_COUNT/5
@@ -1537,18 +1714,36 @@ jobs:
             exit 1
           fi
           
-          CURRENT_QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | grep -oP '```json\K.*?(?=```)' | head -1)
+          # 通用函数：从队列管理issue中提取JSON数据
+          extract_queue_json() {
+            local issue_content="$1"
+            local queue_data=""
+            
+            # 方法1: 使用grep提取JSON代码块
+            queue_data=$(echo "$issue_content" | jq -r '.body' | grep -oP '```json\K.*?(?=```)' | head -1)
+            
+            # 方法2: 如果方法1失败，使用sed提取
+            if [ -z "$queue_data" ]; then
+              echo "⚠️ Failed to extract JSON with grep, trying sed method..."
+              queue_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | head -1)
+            fi
+            
+            # 方法3: 如果方法2失败，尝试直接解析body
+            if [ -z "$queue_data" ]; then
+              echo "⚠️ Failed to extract JSON with sed, trying direct body parsing..."
+              queue_data=$(echo "$issue_content" | jq -r '.body' | grep -oP '\{[^}]*"queue"[^}]*\}' | head -1)
+            fi
+            
+            echo "$queue_data"
+          }
           
-          # 如果提取失败，尝试其他方法
-          if [ -z "$CURRENT_QUEUE_DATA" ]; then
-            echo "⚠️ Failed to extract JSON with grep, trying alternative method..."
-            CURRENT_QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | head -1)
-          fi
+          # 使用通用函数提取队列数据
+          CURRENT_QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
           
           # 如果仍然失败，使用默认数据
           if [ -z "$CURRENT_QUEUE_DATA" ]; then
             echo "⚠️ Failed to extract JSON, using default queue data..."
-            CURRENT_QUEUE_DATA='{"queue":[],"current_build":null,"lock_holder":null,"run_id":null}'
+            CURRENT_QUEUE_DATA='{"queue":[],"run_id":null}'
           fi
           
           # 验证JSON格式
@@ -1558,12 +1753,12 @@ jobs:
           fi
           
           # 检查run_id是否匹配，只有锁持有者才能释放锁
-          LOCK_RUN_ID=$(echo "$CURRENT_QUEUE_DATA" | jq -r '.run_id // empty')
+          LOCK_RUN_ID=$(echo "$CURRENT_QUEUE_DATA" | jq -r '.run_id // null')
           if [ "$LOCK_RUN_ID" = "${{ github.run_id }}" ]; then
             echo "Releasing lock..."
-            # 释放锁
+            # 简单释放锁：只删除run_id
             UPDATED_QUEUE_DATA=$(echo "$CURRENT_QUEUE_DATA" | \
-              jq '.current_build = null | .lock_holder = null | .run_id = null')
+              jq '.run_id = null')
             
             # 计算队列数量
             UPDATED_TOTAL_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.queue | length // 0')
@@ -1579,7 +1774,6 @@ jobs:
             - **构建锁状态：** 空闲 🔓
             - **当前构建：** 无
             - **锁持有者：** 无
-            - **运行ID：** 无
 
             ### 构建队列
             - **当前数量：** $UPDATED_TOTAL_COUNT/5
