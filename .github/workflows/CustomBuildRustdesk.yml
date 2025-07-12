@@ -256,17 +256,17 @@ jobs:
             echo "自动拒绝原因：$AUTO_REJECT_REASON"
             REJECT_COMMENT="## ❌ 构建被自动拒绝
 
-          **拒绝原因：**
-          $AUTO_REJECT_REASON
+            **拒绝原因：**
+            $AUTO_REJECT_REASON
 
-          **时间：** $(date '+%Y-%m-%d %H:%M:%S')
-          请检查参数后重新提交issue。"
-            echo -e "$REJECT_COMMENT" | jq -Rs '{body: .}' | \
-              curl -X POST \
-                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                -H "Accept: application/vnd.github.v3+json" \
-                https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
-                -d @-
+            **时间：** $(date '+%Y-%m-%d %H:%M:%S')
+            请检查参数后重新提交issue。"
+            
+            curl -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
+              -d "$(jq -n --arg body "$REJECT_COMMENT" '{"body": $body}')"
             echo "BUILD_REJECTED=true" >> $GITHUB_ENV
             exit 0
           else
@@ -466,12 +466,11 @@ jobs:
             **时间：** $(date '+%Y-%m-%d %H:%M:%S')
             构建将自动终止。如需重新构建，请重新提交issue。"
             
-            echo -e "$TIMEOUT_COMMENT" | jq -Rs '{body: .}' | \
-              curl -X POST \
-                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                -H "Accept: application/vnd.github.v3+json" \
-                https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
-                -d @-
+            curl -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
+              -d "$(jq -n --arg body "$TIMEOUT_COMMENT" '{"body": $body}')"
             
             exit 1
           fi
@@ -555,6 +554,13 @@ jobs:
           # 解析队列数据
           QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | grep -oP '```json\K.*?(?=```)' | head -1)
           
+          # 如果提取失败，尝试其他方法
+          if [ -z "$QUEUE_DATA" ]; then
+            echo "⚠️ Failed to extract JSON with grep, trying alternative method..."
+            QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | head -1)
+          fi
+          
+          # 如果仍然失败，跳过清理
           if [ -z "$QUEUE_DATA" ]; then
             echo "No queue data found, skipping cleanup"
             echo "QUEUE_CLEANED=false" >> $GITHUB_ENV
@@ -588,22 +594,19 @@ jobs:
           # 1. 检查锁是否异常（有锁但没有持有者，或有持有者但没有锁，或缺少run_id）
           if [ "$CURRENT_BUILD" != "null" ] && [ "$LOCK_HOLDER" = "null" ]; then
             NEED_CLEANUP=true
-            CLEANUP_REASON="${CLEANUP_REASON}• 锁异常：有构建项目但无持有者
-          "
+            CLEANUP_REASON="${CLEANUP_REASON}• 锁异常：有构建项目但无持有者\n"
             echo "❌ Lock anomaly detected: build=$CURRENT_BUILD, holder=null"
           fi
           
           if [ "$CURRENT_BUILD" = "null" ] && [ "$LOCK_HOLDER" != "null" ]; then
             NEED_CLEANUP=true
-            CLEANUP_REASON="${CLEANUP_REASON}• 锁异常：有持有者但无构建项目
-          "
+            CLEANUP_REASON="${CLEANUP_REASON}• 锁异常：有持有者但无构建项目\n"
             echo "❌ Lock anomaly detected: build=null, holder=$LOCK_HOLDER"
           fi
           
           if [ "$CURRENT_BUILD" != "null" ] && [ "$LOCK_HOLDER" != "null" ] && [ -z "$LOCK_RUN_ID" ]; then
             NEED_CLEANUP=true
-            CLEANUP_REASON="${CLEANUP_REASON}• 锁异常：有构建项目和持有者但缺少run_id
-          "
+            CLEANUP_REASON="${CLEANUP_REASON}• 锁异常：有构建项目和持有者但缺少run_id\n"
             echo "❌ Lock anomaly detected: build=$CURRENT_BUILD, holder=$LOCK_HOLDER, run_id=empty"
           fi
           
@@ -628,8 +631,7 @@ jobs:
               
               if [ "$LOCK_DURATION_HOURS" -ge 2 ]; then
                 NEED_CLEANUP=true
-                CLEANUP_REASON="${CLEANUP_REASON}• 锁超时：已占用${LOCK_DURATION_HOURS}小时
-          "
+                CLEANUP_REASON="${CLEANUP_REASON}• 锁超时：已占用${LOCK_DURATION_HOURS}小时\n"
                 echo "❌ Lock timeout detected: ${LOCK_DURATION_HOURS} hours"
               fi
             fi
@@ -642,8 +644,7 @@ jobs:
             
             if [ -n "$DUPLICATE_ITEMS" ]; then
               NEED_CLEANUP=true
-              CLEANUP_REASON="${CLEANUP_REASON}• 队列重复：构建项目 $DUPLICATE_ITEMS 重复
-          "
+              CLEANUP_REASON="${CLEANUP_REASON}• 队列重复：构建项目 $DUPLICATE_ITEMS 重复\n"
               echo "❌ Duplicate items detected: $DUPLICATE_ITEMS"
             fi
           fi
@@ -657,8 +658,7 @@ jobs:
             
             if [ "$BUILD_IN_QUEUE" != "true" ]; then
               NEED_CLEANUP=true
-              CLEANUP_REASON="${CLEANUP_REASON}• 构建完成：构建项目 $CURRENT_BUILD 已不在队列中
-          "
+              CLEANUP_REASON="${CLEANUP_REASON}• 构建完成：构建项目 $CURRENT_BUILD 已不在队列中\n"
               echo "❌ Build completed but lock not released: $CURRENT_BUILD"
             fi
           fi
@@ -683,43 +683,39 @@ jobs:
             CLEANED_ISSUE_COUNT=$(echo "$CLEANED_QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "issue")) | length // 0')
             CLEANED_WORKFLOW_COUNT=$(echo "$CLEANED_QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "workflow_dispatch")) | length // 0')
             
-            
-            
             # 更新队列管理issue
-            CLEANED_BODY="## 构建队列管理
+            echo -e "## 构建队列管理
 
-          **最后更新时间：** $(date '+%Y-%m-%d %H:%M:%S')
+            **最后更新时间：** $(date '+%Y-%m-%d %H:%M:%S')
 
-          ### 当前状态
-          - **构建锁状态：** 空闲 🔓 (已清理)
-          - **当前构建：** 无
-          - **锁持有者：** 无
-          - **运行ID：** 无
+            ### 当前状态
+            - **构建锁状态：** 空闲 🔓 (已清理)
+            - **当前构建：** 无
+            - **锁持有者：** 无
+            - **运行ID：** 无
 
-          ### 构建队列
-          - **当前数量：** $CLEANED_TOTAL_COUNT/5
-          - **Issue触发：** $CLEANED_ISSUE_COUNT/3
-          - **手动触发：** $CLEANED_WORKFLOW_COUNT/5
+            ### 构建队列
+            - **当前数量：** $CLEANED_TOTAL_COUNT/5
+            - **Issue触发：** $CLEANED_ISSUE_COUNT/3
+            - **手动触发：** $CLEANED_WORKFLOW_COUNT/5
 
-          ---
+            ---
 
-          ### 清理记录
-          **清理时间：** $(date '+%Y-%m-%d %H:%M:%S')
-          **清理原因：**
-          $CLEANUP_REASON
+            ### 清理记录
+            **清理时间：** $(date '+%Y-%m-%d %H:%M:%S')
+            **清理原因：**
+            $CLEANUP_REASON
 
-          ### 队列数据
-          \`\`\`json
-          $CLEANED_QUEUE_DATA
-          \`\`\`"
-            
-            # 更新队列管理issue
+            ### 队列数据
+            \`\`\`json
+            $CLEANED_QUEUE_DATA
+            \`\`\`" | jq -Rs '{body: .}' | \
             curl -X PATCH \
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               -H "Accept: application/vnd.github.v3+json" \
               -H "Content-Type: application/json" \
               "https://api.github.com/repos/${{ github.repository }}/issues/$QUEUE_MANAGER_ISSUE" \
-              -d "$(jq -n --arg body "$CLEANED_BODY" '{"body": $body}')"
+              -d @-
             
             echo "Queue cleanup completed successfully!"
             echo "Cleaned total count: $CLEANED_TOTAL_COUNT"
@@ -763,33 +759,39 @@ jobs:
             # 解析队列数据（从issue body中提取JSON）
             QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | grep -oP '```json\K.*?(?=```)' | head -1)
             
+            # 如果提取失败，尝试其他方法
             if [ -z "$QUEUE_DATA" ]; then
-              # 如果队列数据不存在，初始化空队列
+              echo "⚠️ Failed to extract JSON with grep, trying alternative method..."
+              QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | head -1)
+            fi
+            
+            # 如果仍然失败，初始化空队列
+            if [ -z "$QUEUE_DATA" ]; then
               echo "Initializing empty queue..."
               QUEUE_DATA='{"queue":[],"current_build":null,"lock_holder":null,"run_id":null}'
               
-                          # 创建初始队列管理内容
-            INITIAL_BODY="## 构建队列管理
+              # 创建初始队列管理内容
+              INITIAL_BODY="## 构建队列管理
 
-          **最后更新时间：** $(date '+%Y-%m-%d %H:%M:%S')
+            **最后更新时间：** $(date '+%Y-%m-%d %H:%M:%S')
 
-          ### 当前状态
-          - **构建锁状态：** 空闲 🔓
-          - **当前构建：** 无
-          - **锁持有者：** 无
-          - **运行ID：** 无
+            ### 当前状态
+            - **构建锁状态：** 空闲 🔓
+            - **当前构建：** 无
+            - **锁持有者：** 无
+            - **运行ID：** 无
 
-          ### 构建队列
-          - **当前数量：** 0/5
-          - **Issue触发限制：** 最多3个
-          - **手动触发限制：** 最多5个
+            ### 构建队列
+            - **当前数量：** 0/5
+            - **Issue触发限制：** 最多3个
+            - **手动触发限制：** 最多5个
 
-          ---
+            ---
 
-          ### 队列数据
-          \`\`\`json
-          $QUEUE_DATA
-          \`\`\`"
+            ### 队列数据
+            \`\`\`json
+            $QUEUE_DATA
+            \`\`\`"
               
               # 更新队列管理issue
               curl -X PATCH \
@@ -798,6 +800,12 @@ jobs:
                 -H "Content-Type: application/json" \
                 "https://api.github.com/repos/${{ github.repository }}/issues/$QUEUE_MANAGER_ISSUE" \
                 -d "$(jq -n --arg body "$INITIAL_BODY" '{"body": $body}')"
+            fi
+            
+            # 验证JSON格式
+            if ! echo "$QUEUE_DATA" | jq . > /dev/null 2>&1; then
+              echo "❌ Invalid JSON format, using fallback..."
+              QUEUE_DATA='{"queue":[],"current_build":null,"lock_holder":null,"run_id":null}'
             fi
           fi
           
@@ -916,12 +924,11 @@ jobs:
           
           # 只在issue模式下添加拒绝评论
           if [ "$TRIGGER_TYPE" = "issue" ]; then
-            echo -e "$REJECT_COMMENT" | jq -Rs '{body: .}' | \
-              curl -X POST \
-                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                -H "Accept: application/vnd.github.v3+json" \
-                https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
-                -d @-
+            curl -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
+              -d "$(jq -n --arg body "$REJECT_COMMENT" '{"body": $body}')"
           fi
           
           # 退出工作流
@@ -1119,12 +1126,11 @@ jobs:
           # 只在issue模式下发布评论
           if [ "$TRIGGER_TYPE" = "issue" ]; then
             echo "About to post comment..."
-            echo -e "$QUEUE_JOIN_COMMENT" | jq -Rs '{body: .}' | \
-              curl -X POST \
-                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                -H "Accept: application/vnd.github.v3+json" \
-                https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
-                -d @-
+            curl -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
+              -d "$(jq -n --arg body "$QUEUE_JOIN_COMMENT" '{"body": $body}')"
             echo "Comment posted successfully"
           else
             echo "Workflow dispatch mode - skipping comment posting"
@@ -1323,12 +1329,11 @@ jobs:
               **时间：** $(date '+%Y-%m-%d %H:%M:%S')
               构建将自动终止。如需重新构建，请重新提交issue。"
               
-              echo -e "$TIMEOUT_COMMENT" | jq -Rs '{body: .}' | \
-                curl -X POST \
-                  -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                  -H "Accept: application/vnd.github.v3+json" \
-                  https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
-                  -d @-
+              curl -X POST \
+                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                -H "Accept: application/vnd.github.v3+json" \
+                https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
+                -d "$(jq -n --arg body "$TIMEOUT_COMMENT" '{"body": $body}')"
             fi
             
             exit 1
@@ -1435,12 +1440,11 @@ jobs:
             **时间：** $(date '+%Y-%m-%d %H:%M:%S')
             构建过程正在进行中..."
 
-            echo -e "$BUILD_START_COMMENT" | jq -Rs '{body: .}' | \
-              curl -X POST \
-                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                -H "Accept: application/vnd.github.v3+json" \
-                https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
-                -d @-
+            curl -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
+              -d "$(jq -n --arg body "$BUILD_START_COMMENT" '{"body": $body}')"
           fi
 
   build: # 构建阶段
@@ -1628,10 +1632,9 @@ jobs:
             **时间：** $(date '+%Y-%m-%d %H:%M:%S')
             下一个队列项目可以开始构建。"
 
-            echo -e "$COMPLETION_COMMENT" | jq -Rs '{body: .}' | \
-              curl -X POST \
-                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                -H "Accept: application/vnd.github.v3+json" \
-                https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
-                -d @-
+            curl -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
+              -d "$(jq -n --arg body "$COMPLETION_COMMENT" '{"body": $body}')"
           fi
