@@ -386,7 +386,7 @@ jobs:
           
           # 循环检查审核回复
           START_TIME=$(date +%s)
-          TIMEOUT=7200  # 2小时超时
+          TIMEOUT=21600  # 6小时超时
           APPROVED=false
           REJECTED=false # 新增变量，用于标记拒绝
           
@@ -459,23 +459,21 @@ jobs:
             echo "BUILD_REJECTED=true" >> $GITHUB_ENV
             exit 0
           else
-            echo "Review timeout after 2 hours"
+            echo "Review timeout after 6 hours"
             # 添加超时评论
             TIMEOUT_COMMENT="## ⏰ 审核超时
-            **状态：** 审核超时（2小时）
+            **状态：** 审核超时（6小时）
             **时间：** $(date '+%Y-%m-%d %H:%M:%S')
             构建将自动终止。如需重新构建，请重新提交issue。"
             
-            curl -X POST \
-              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              -H "Accept: application/vnd.github.v3+json" \
-              https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
-              -d "$(jq -n --arg body "$TIMEOUT_COMMENT" "{\"body\": \$body}")"
+            echo -e "$TIMEOUT_COMMENT" | jq -Rs '{body: .}' | \
+              curl -X POST \
+                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                -H "Accept: application/vnd.github.v3+json" \
+                https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
+                -d @-
             
-            echo "Review timeout - setting build_approved to false"
-            # 设置审核超时标志
-            echo "BUILD_TIMEOUT=true" >> $GITHUB_ENV
-            exit 0
+            exit 1
           fi
 
       - name: Output data
@@ -577,11 +575,13 @@ jobs:
           # 获取当前状态
           CURRENT_BUILD=$(echo "$QUEUE_DATA" | jq -r '.current_build // null')
           LOCK_HOLDER=$(echo "$QUEUE_DATA" | jq -r '.lock_holder // null')
+          LOCK_RUN_ID=$(echo "$QUEUE_DATA" | jq -r '.run_id // empty')
           ISSUE_QUEUE=$(echo "$QUEUE_DATA" | jq -r '.issue_queue // []')
           WORKFLOW_QUEUE=$(echo "$QUEUE_DATA" | jq -r '.workflow_queue // []')
           
           echo "Current build: $CURRENT_BUILD"
           echo "Lock holder: $LOCK_HOLDER"
+          echo "Lock run_id: $LOCK_RUN_ID"
           echo "Issue queue: $ISSUE_QUEUE"
           echo "Workflow queue: $WORKFLOW_QUEUE"
           
@@ -589,7 +589,7 @@ jobs:
           NEED_CLEANUP=false
           CLEANUP_REASON=""
           
-          # 1. 检查锁是否异常（有锁但没有持有者，或有持有者但没有锁）
+          # 1. 检查锁是否异常（有锁但没有持有者，或有持有者但没有锁，或缺少run_id）
           if [ "$CURRENT_BUILD" != "null" ] && [ "$LOCK_HOLDER" = "null" ]; then
             NEED_CLEANUP=true
             CLEANUP_REASON="${CLEANUP_REASON}• 锁异常：有构建项目但无持有者
@@ -602,6 +602,13 @@ jobs:
             CLEANUP_REASON="${CLEANUP_REASON}• 锁异常：有持有者但无构建项目
           "
             echo "❌ Lock anomaly detected: build=null, holder=$LOCK_HOLDER"
+          fi
+          
+          if [ "$CURRENT_BUILD" != "null" ] && [ "$LOCK_HOLDER" != "null" ] && [ -z "$LOCK_RUN_ID" ]; then
+            NEED_CLEANUP=true
+            CLEANUP_REASON="${CLEANUP_REASON}• 锁异常：有构建项目和持有者但缺少run_id
+          "
+            echo "❌ Lock anomaly detected: build=$CURRENT_BUILD, holder=$LOCK_HOLDER, run_id=empty"
           fi
           
           # 2. 检查锁是否长时间占用（超过2小时）
@@ -697,12 +704,24 @@ jobs:
               # 重置异常锁
               | .current_build = null
               | .lock_holder = null
+              | .run_id = null
             ')
             
-            # 计算清理后的队列数量
-            CLEANED_ISSUE_COUNT=$(echo "$CLEANED_QUEUE_DATA" | jq '.issue_queue | length')
-            CLEANED_WORKFLOW_COUNT=$(echo "$CLEANED_QUEUE_DATA" | jq '.workflow_queue | length')
+            # 计算清理后的队列数量 - 使用安全的默认值
+            CLEANED_ISSUE_COUNT=$(echo "$CLEANED_QUEUE_DATA" | jq '.issue_queue | length // 0')
+            CLEANED_WORKFLOW_COUNT=$(echo "$CLEANED_QUEUE_DATA" | jq '.workflow_queue | length // 0')
             CLEANED_TOTAL_COUNT=$((CLEANED_ISSUE_COUNT + CLEANED_WORKFLOW_COUNT))
+            
+            # 确保数量不为空
+            if [ -z "$CLEANED_ISSUE_COUNT" ]; then
+              CLEANED_ISSUE_COUNT=0
+            fi
+            if [ -z "$CLEANED_WORKFLOW_COUNT" ]; then
+              CLEANED_WORKFLOW_COUNT=0
+            fi
+            if [ -z "$CLEANED_TOTAL_COUNT" ]; then
+              CLEANED_TOTAL_COUNT=0
+            fi
             
             # 更新队列管理issue
             CLEANED_BODY="## 构建队列管理
@@ -713,6 +732,7 @@ jobs:
           - **构建锁状态：** 空闲 🔓 (已清理)
           - **当前构建：** 无
           - **锁持有者：** 无
+          - **运行ID：** 无
 
           ### Issue队列 (最多3个)
           - 当前数量：$CLEANED_ISSUE_COUNT/3
@@ -788,7 +808,7 @@ jobs:
             if [ -z "$QUEUE_DATA" ]; then
               # 如果队列数据不存在，初始化空队列
               echo "Initializing empty queue..."
-              QUEUE_DATA='{"issue_queue":[],"workflow_queue":[],"current_build":null,"lock_holder":null}'
+              QUEUE_DATA='{"issue_queue":[],"workflow_queue":[],"current_build":null,"lock_holder":null,"run_id":null}'
               
               # 创建初始队列管理内容
               INITIAL_BODY="## 构建队列管理
@@ -799,6 +819,7 @@ jobs:
             - **构建锁状态：** 空闲 🔓
             - **当前构建：** 无
             - **锁持有者：** 无
+            - **运行ID：** 无
 
             ### Issue队列 (最多3个)
             - 当前数量：0/3
@@ -839,12 +860,23 @@ jobs:
           echo "Current build: $(echo "$QUEUE_DATA" | jq -r '.current_build')"
           echo "Lock holder: $(echo "$QUEUE_DATA" | jq -r '.lock_holder')"
           
-          # 获取当前各类型队列数量
-          ISSUE_QUEUE_COUNT=$(echo "$QUEUE_DATA" | jq '.issue_queue | length')
-          WORKFLOW_QUEUE_COUNT=$(echo "$QUEUE_DATA" | jq '.workflow_queue | length')
+          # 获取当前各类型队列数量 - 使用安全的默认值
+          ISSUE_QUEUE_COUNT=$(echo "$QUEUE_DATA" | jq '.issue_queue | length // 0')
+          WORKFLOW_QUEUE_COUNT=$(echo "$QUEUE_DATA" | jq '.workflow_queue | length // 0')
           TOTAL_QUEUE_COUNT=$((ISSUE_QUEUE_COUNT + WORKFLOW_QUEUE_COUNT))
-          CURRENT_BUILD=$(echo "$QUEUE_DATA" | jq -r '.current_build')
-          LOCK_HOLDER=$(echo "$QUEUE_DATA" | jq -r '.lock_holder')
+          CURRENT_BUILD=$(echo "$QUEUE_DATA" | jq -r '.current_build // null')
+          LOCK_HOLDER=$(echo "$QUEUE_DATA" | jq -r '.lock_holder // null')
+          
+          # 确保数量不为空
+          if [ -z "$ISSUE_QUEUE_COUNT" ]; then
+            ISSUE_QUEUE_COUNT=0
+          fi
+          if [ -z "$WORKFLOW_QUEUE_COUNT" ]; then
+            WORKFLOW_QUEUE_COUNT=0
+          fi
+          if [ -z "$TOTAL_QUEUE_COUNT" ]; then
+            TOTAL_QUEUE_COUNT=0
+          fi
           
           echo "Current issue queue count: $ISSUE_QUEUE_COUNT/3"
           echo "Current workflow queue count: $WORKFLOW_QUEUE_COUNT/5"
@@ -985,10 +1017,15 @@ jobs:
           
           echo "Updated queue data: $UPDATED_QUEUE_DATA"
           
-          # 计算队列数量
-          UPDATED_ISSUE_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.issue_queue | length')
-          UPDATED_WORKFLOW_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.workflow_queue | length')
+          # 计算队列数量 - 使用安全的默认值
+          UPDATED_ISSUE_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.issue_queue | length // 0')
+          UPDATED_WORKFLOW_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.workflow_queue | length // 0')
           UPDATED_TOTAL_COUNT=$((UPDATED_ISSUE_COUNT + UPDATED_WORKFLOW_COUNT))
+          
+          # 确保数量不为空
+          if [ -z "$UPDATED_ISSUE_COUNT" ]; then UPDATED_ISSUE_COUNT=0; fi
+          if [ -z "$UPDATED_WORKFLOW_COUNT" ]; then UPDATED_WORKFLOW_COUNT=0; fi
+          if [ -z "$UPDATED_TOTAL_COUNT" ]; then UPDATED_TOTAL_COUNT=0; fi
           
           echo "Updated counts - Issue: $UPDATED_ISSUE_COUNT, Workflow: $UPDATED_WORKFLOW_COUNT, Total: $UPDATED_TOTAL_COUNT"
           
@@ -1128,7 +1165,7 @@ jobs:
           echo "Waiting in queue and for build lock..."
           
           START_TIME=$(date +%s)
-          TIMEOUT=7200  # 2小时超时
+          TIMEOUT=21600  # 6小时超时
           
           while [ $(($(date +%s) - START_TIME)) -lt $TIMEOUT ]; do
             echo "Checking queue position and lock status... ($(($(date +%s) - START_TIME))s elapsed)"
@@ -1150,16 +1187,16 @@ jobs:
               CURRENT_QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | head -1)
               if ! echo "$CURRENT_QUEUE_DATA" | jq . > /dev/null 2>&1; then
                 echo "Failed to extract valid JSON, using fallback..."
-                CURRENT_QUEUE_DATA='{"issue_queue":[],"workflow_queue":[],"current_build":null,"lock_holder":null}'
+                CURRENT_QUEUE_DATA='{"issue_queue":[],"workflow_queue":[],"current_build":null,"lock_holder":null,"run_id":null}'
               fi
             fi
             
             # 验证必要字段
-            REQUIRED_FIELDS=("issue_queue" "workflow_queue" "current_build" "lock_holder")
+            REQUIRED_FIELDS=("issue_queue" "workflow_queue" "current_build" "lock_holder" "run_id")
             for field in "${REQUIRED_FIELDS[@]}"; do
               if ! echo "$CURRENT_QUEUE_DATA" | jq -e ".$field" > /dev/null 2>&1; then
                 echo "❌ Missing required field: $field, resetting queue data"
-                CURRENT_QUEUE_DATA='{"issue_queue":[],"workflow_queue":[],"current_build":null,"lock_holder":null}'
+                CURRENT_QUEUE_DATA='{"issue_queue":[],"workflow_queue":[],"current_build":null,"lock_holder":null,"run_id":null}'
                 break
               fi
             done
@@ -1179,7 +1216,7 @@ jobs:
             # 自动修复异常状态
             if [ "$CURRENT_ISSUE_COUNT" = "" ] || [ "$CURRENT_WORKFLOW_COUNT" = "" ]; then
               echo "⚠️ 检测到异常状态，自动修复..."
-              CURRENT_QUEUE_DATA='{"issue_queue":[],"workflow_queue":[],"current_build":null,"lock_holder":null}'
+              CURRENT_QUEUE_DATA='{"issue_queue":[],"workflow_queue":[],"current_build":null,"lock_holder":null,"run_id":null}'
               CURRENT_ISSUE_COUNT=0
               CURRENT_WORKFLOW_COUNT=0
               CURRENT_TOTAL_COUNT=0
@@ -1195,6 +1232,7 @@ jobs:
               - **构建锁状态：** 空闲 🔓 (自动修复)
               - **当前构建：** 无
               - **锁持有者：** 无
+              - **运行ID：** 无
 
               ### Issue队列 (最多3个)
               - 当前数量：0/3
@@ -1274,67 +1312,22 @@ jobs:
             # 检查是否是首位
             if [ "$CURRENT_POSITION" != "1" ]; then
               echo "Not at front of queue (position: $CURRENT_POSITION), waiting..."
-              
-              # 更新队列状态评论
-              UPDATE_COMMENT="## 队列状态更新
-
-              **当前位置：** $CURRENT_POSITION/$QUEUE_LIMIT ($TRIGGER_TYPE队列)
-              **预计等待时间：** 约$((CURRENT_TOTAL_COUNT * 30))分钟
-              **状态：** 等待队列位置 ⏳
-
-              **当前队列状态：**
-              - Issue队列：$CURRENT_ISSUE_COUNT/3
-              - Workflow队列：$CURRENT_WORKFLOW_COUNT/5
-              - 总队列：$CURRENT_TOTAL_COUNT/5
-
-              **构建锁状态：** $([ "$CURRENT_BUILD" = "null" ] && echo "空闲 🔓" || echo "占用 🔒")
-
-              **更新时间：** $(date '+%Y-%m-%d %H:%M:%S')"
-              
-              # 添加新评论
-              echo -e "$UPDATE_COMMENT" | jq -Rs '{body: .}' | \
-                curl -X POST \
-                  -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                  -H "Accept: application/vnd.github.v3+json" \
-                  https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
-                  -d @-
-              
-              # 等待5分钟后再次检查
-              sleep 300
+              sleep 30
               continue
             fi
             
             # 检查构建锁是否可用
             if [ "$CURRENT_BUILD" != "null" ] && [ "$CURRENT_BUILD" != "null" ]; then
-              echo "Build lock is held by: $LOCK_HOLDER (build: $CURRENT_BUILD), waiting for lock..."
-              
-              # 更新等待锁状态评论
-              LOCK_WAIT_COMMENT="## 等待构建锁
-
-              **队列位置：** 1/$QUEUE_LIMIT ($TRIGGER_TYPE队列) ✅
-              **构建锁状态：** 占用 🔒
-              **当前构建：** $CURRENT_BUILD
-              **锁持有者：** $LOCK_HOLDER
-              **状态：** 等待构建锁释放 ⏳
-
-              **当前队列状态：**
-              - Issue队列：$CURRENT_ISSUE_COUNT/3
-              - Workflow队列：$CURRENT_WORKFLOW_COUNT/5
-              - 总队列：$CURRENT_TOTAL_COUNT/5
-
-              **更新时间：** $(date '+%Y-%m-%d %H:%M:%S')"
-              
-              # 添加新评论
-              echo -e "$LOCK_WAIT_COMMENT" | jq -Rs '{body: .}' | \
-                curl -X POST \
-                  -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                  -H "Accept: application/vnd.github.v3+json" \
-                  https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments \
-                  -d @-
-              
-              # 等待5分钟后再次检查
-              sleep 300
-              continue
+              # 检查run_id是否匹配，如果匹配说明是本流程持有锁，可以直接继续
+              LOCK_RUN_ID=$(echo "$CURRENT_QUEUE_DATA" | jq -r '.run_id // empty')
+              if [ "$LOCK_RUN_ID" = "${{ github.run_id }}" ]; then
+                echo "Lock is held by current run ($LOCK_RUN_ID), proceeding to build..."
+                break
+              else
+                echo "Build lock is held by: $LOCK_HOLDER (build: $CURRENT_BUILD, run_id: $LOCK_RUN_ID), waiting for lock..."
+                sleep 30
+                continue
+              fi
             fi
             
             # 如果到达首位且锁可用，尝试获取锁
@@ -1362,23 +1355,50 @@ jobs:
               
               # 再次检查锁是否仍然可用
               if [ "$LATEST_BUILD" = "null" ] || [ "$LATEST_BUILD" = "null" ]; then
-                # 获取锁 - 使用原子操作，保持原有队列数据
+                # 验证原始队列数据完整性
+                echo "Validating original queue data before lock acquisition..."
+                ORIGINAL_ISSUE_COUNT=$(echo "$LATEST_QUEUE_DATA" | jq '.issue_queue | length // 0')
+                ORIGINAL_WORKFLOW_COUNT=$(echo "$LATEST_QUEUE_DATA" | jq '.workflow_queue | length // 0')
+                echo "Original counts - Issue: $ORIGINAL_ISSUE_COUNT, Workflow: $ORIGINAL_WORKFLOW_COUNT"
+                
+                # 获取锁 - 使用原子操作，保持原有队列数据，加入run_id防止并发
                 UPDATED_QUEUE_DATA=$(echo "$LATEST_QUEUE_DATA" | \
                   jq --arg issue_number "${{ github.event.issue.number }}" \
                   --arg user "${{ github.actor }}" \
-                  '.current_build = $issue_number | .lock_holder = $user')
+                  --arg run_id "${{ github.run_id }}" \
+                  '.current_build = $issue_number | .lock_holder = $user | .run_id = $run_id')
                 
                 # 验证队列数据完整性
                 echo "Updated queue data: $UPDATED_QUEUE_DATA"
-                echo "Issue queue length: $(echo "$UPDATED_QUEUE_DATA" | jq '.issue_queue | length')"
-                echo "Workflow queue length: $(echo "$UPDATED_QUEUE_DATA" | jq '.workflow_queue | length')"
-                
-                # 计算更新后的队列数量
-                UPDATED_ISSUE_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.issue_queue | length')
-                UPDATED_WORKFLOW_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.workflow_queue | length')
+                UPDATED_ISSUE_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.issue_queue | length // 0')
+                UPDATED_WORKFLOW_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.workflow_queue | length // 0')
                 UPDATED_TOTAL_COUNT=$((UPDATED_ISSUE_COUNT + UPDATED_WORKFLOW_COUNT))
                 
+                # 确保数量不为空
+                if [ -z "$UPDATED_ISSUE_COUNT" ]; then UPDATED_ISSUE_COUNT=0; fi
+                if [ -z "$UPDATED_WORKFLOW_COUNT" ]; then UPDATED_WORKFLOW_COUNT=0; fi
+                if [ -z "$UPDATED_TOTAL_COUNT" ]; then UPDATED_TOTAL_COUNT=0; fi
+                
                 echo "Updated counts - Issue: $UPDATED_ISSUE_COUNT, Workflow: $UPDATED_WORKFLOW_COUNT, Total: $UPDATED_TOTAL_COUNT"
+                
+                # 验证队列数据没有被清空
+                if [ "$UPDATED_ISSUE_COUNT" != "$ORIGINAL_ISSUE_COUNT" ] || [ "$UPDATED_WORKFLOW_COUNT" != "$ORIGINAL_WORKFLOW_COUNT" ]; then
+                  echo "❌ 队列数据在锁获取过程中被清空，回滚操作"
+                  echo "Original: Issue=$ORIGINAL_ISSUE_COUNT, Workflow=$ORIGINAL_WORKFLOW_COUNT"
+                  echo "Updated: Issue=$UPDATED_ISSUE_COUNT, Workflow=$UPDATED_WORKFLOW_COUNT"
+                  LOCK_ACQUIRED=false
+                  RETRY_COUNT=$((RETRY_COUNT + 1))
+                  sleep 10
+                  continue
+                fi
+                
+                # 确保队列数量显示正确
+                if [ "$UPDATED_ISSUE_COUNT" = "" ] || [ "$UPDATED_WORKFLOW_COUNT" = "" ]; then
+                  echo "❌ 队列数量计算失败，使用默认值"
+                  UPDATED_ISSUE_COUNT=0
+                  UPDATED_WORKFLOW_COUNT=0
+                  UPDATED_TOTAL_COUNT=0
+                fi
                 
                 # 更新队列管理issue
                 UPDATED_BODY="## 构建队列管理
@@ -1389,6 +1409,7 @@ jobs:
                 - **构建锁状态：** 占用 🔒
                 - **当前构建：** ${{ github.event.issue.number }}
                 - **锁持有者：** ${{ github.actor }}
+                - **运行ID：** ${{ github.run_id }}
 
                 ### Issue队列 (最多3个)
                 - 当前数量：$UPDATED_ISSUE_COUNT/3
@@ -1429,15 +1450,24 @@ jobs:
                   VERIFY_QUEUE_DATA=$(echo "$VERIFY_CONTENT" | jq -r '.body' | grep -oP '```json\K.*?(?=```)' | head -1)
                   VERIFY_BUILD=$(echo "$VERIFY_QUEUE_DATA" | jq -r '.current_build // null')
                   VERIFY_HOLDER=$(echo "$VERIFY_QUEUE_DATA" | jq -r '.lock_holder // null')
-                  VERIFY_ISSUE_COUNT=$(echo "$VERIFY_QUEUE_DATA" | jq '.issue_queue | length')
-                  VERIFY_WORKFLOW_COUNT=$(echo "$VERIFY_QUEUE_DATA" | jq '.workflow_queue | length')
+                  VERIFY_RUN_ID=$(echo "$VERIFY_QUEUE_DATA" | jq -r '.run_id // empty')
+                  VERIFY_ISSUE_COUNT=$(echo "$VERIFY_QUEUE_DATA" | jq '.issue_queue | length // 0')
+                  VERIFY_WORKFLOW_COUNT=$(echo "$VERIFY_QUEUE_DATA" | jq '.workflow_queue | length // 0')
                   
-                  echo "Verification - Build: $VERIFY_BUILD, Holder: $VERIFY_HOLDER"
+                  echo "Verification - Build: $VERIFY_BUILD, Holder: $VERIFY_HOLDER, Run ID: $VERIFY_RUN_ID"
                   echo "Verification - Issue count: $VERIFY_ISSUE_COUNT, Workflow count: $VERIFY_WORKFLOW_COUNT"
                   
-                  if [ "$VERIFY_BUILD" = "${{ github.event.issue.number }}" ] && [ "$VERIFY_HOLDER" = "${{ github.actor }}" ]; then
-                    echo "Lock acquisition verified successfully!"
-                    break
+                  # 验证锁和数据完整性
+                  if [ "$VERIFY_BUILD" = "${{ github.event.issue.number }}" ] && [ "$VERIFY_HOLDER" = "${{ github.actor }}" ] && [ "$VERIFY_RUN_ID" = "${{ github.run_id }}" ]; then
+                    if [ "$VERIFY_ISSUE_COUNT" = "$UPDATED_ISSUE_COUNT" ] && [ "$VERIFY_WORKFLOW_COUNT" = "$UPDATED_WORKFLOW_COUNT" ]; then
+                      echo "Lock acquisition and data integrity verified successfully!"
+                      break
+                    else
+                      echo "❌ 数据完整性验证失败，队列数据丢失"
+                      echo "Expected: Issue=$UPDATED_ISSUE_COUNT, Workflow=$UPDATED_WORKFLOW_COUNT"
+                      echo "Actual: Issue=$VERIFY_ISSUE_COUNT, Workflow=$VERIFY_WORKFLOW_COUNT"
+                      LOCK_ACQUIRED=false
+                    fi
                   else
                     echo "Lock acquisition verification failed, retrying..."
                     LOCK_ACQUIRED=false
@@ -1463,17 +1493,17 @@ jobs:
               break
             else
               echo "Failed to acquire lock after $MAX_RETRIES attempts, continuing to wait..."
-              sleep 60
+              sleep 30
               continue
             fi
           done
           
           if [ $(($(date +%s) - START_TIME)) -ge $TIMEOUT ]; then
-            echo "Queue timeout after 2 hours"
+            echo "Queue timeout after 6 hours"
             # 添加超时评论
             TIMEOUT_COMMENT="## ⏰ 队列等待超时
 
-            **状态：** 队列等待超时（2小时）
+            **状态：** 队列等待超时（6小时）
             **时间：** $(date '+%Y-%m-%d %H:%M:%S')
             构建将自动终止。如需重新构建，请重新提交issue。"
             
@@ -1702,14 +1732,27 @@ jobs:
           # 解析当前队列数据
           CURRENT_QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | grep -oP '```json\K.*?(?=```)' | head -1)
           
-          # 释放锁
-          UPDATED_QUEUE_DATA=$(echo "$CURRENT_QUEUE_DATA" | \
-            jq '.current_build = null | .lock_holder = null')
+          # 检查run_id是否匹配，只有锁持有者才能释放锁
+          LOCK_RUN_ID=$(echo "$CURRENT_QUEUE_DATA" | jq -r '.run_id // empty')
+          if [ "$LOCK_RUN_ID" = "${{ github.run_id }}" ]; then
+            echo "Lock run_id matches current run, proceeding to release lock"
+            # 释放锁
+            UPDATED_QUEUE_DATA=$(echo "$CURRENT_QUEUE_DATA" | \
+              jq '.current_build = null | .lock_holder = null | .run_id = null')
+          else
+            echo "Not lock owner, cannot release or continue. Lock run_id: $LOCK_RUN_ID, current: ${{ github.run_id }}"
+            exit 0
+          fi
           
-          # 计算队列数量
-          UPDATED_ISSUE_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.issue_queue | length')
-          UPDATED_WORKFLOW_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.workflow_queue | length')
+          # 计算队列数量 - 使用安全的默认值
+          UPDATED_ISSUE_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.issue_queue | length // 0')
+          UPDATED_WORKFLOW_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.workflow_queue | length // 0')
           UPDATED_TOTAL_COUNT=$((UPDATED_ISSUE_COUNT + UPDATED_WORKFLOW_COUNT))
+          
+          # 确保数量不为空
+          if [ -z "$UPDATED_ISSUE_COUNT" ]; then UPDATED_ISSUE_COUNT=0; fi
+          if [ -z "$UPDATED_WORKFLOW_COUNT" ]; then UPDATED_WORKFLOW_COUNT=0; fi
+          if [ -z "$UPDATED_TOTAL_COUNT" ]; then UPDATED_TOTAL_COUNT=0; fi
           
           # 更新队列管理issue
           UPDATED_BODY="## 构建队列管理
@@ -1720,6 +1763,7 @@ jobs:
           - **构建锁状态：** 空闲 🔓
           - **当前构建：** 无
           - **锁持有者：** 无
+          - **运行ID：** 无
 
           ### Issue队列 (最多3个)
           - 当前数量：$UPDATED_ISSUE_COUNT/3
