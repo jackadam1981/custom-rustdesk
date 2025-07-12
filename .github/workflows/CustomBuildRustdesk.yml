@@ -607,7 +607,7 @@ jobs:
             fi
             
             # 提取JSON数据
-            QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | tr '\n' ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            QUEUE_DATA=$(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | grep -oP '```json\s*\K[^{]*\{.*\}' | head -1)
             
             # 如果解析JSON失败，直接重置
             if [ -z "$QUEUE_DATA" ] || ! echo "$QUEUE_DATA" | jq . > /dev/null 2>&1; then
@@ -841,9 +841,9 @@ jobs:
               $CLEANUP_REASON_TEXT
 
               ### 队列数据
-              \`\`\`json
+              ```json
               $CLEANED_QUEUE_DATA
-              \`\`\`"
+              ```"
               
               # 尝试更新队列管理issue
               UPDATE_RESPONSE=$(curl -s -X PATCH \
@@ -892,24 +892,7 @@ jobs:
           # 通用函数：从队列管理issue中提取JSON数据
           extract_queue_json() {
             local issue_content="$1"
-            local queue_data=""
-            
-            # 方法1: 使用grep提取JSON代码块
-            queue_data=$(echo "$issue_content" | jq -r '.body' | grep -oP '```json\K.*?(?=```)' | head -1)
-            
-            # 方法2: 如果方法1失败，使用sed提取
-            if [ -z "$queue_data" ]; then
-              echo "⚠️ Failed to extract JSON with grep, trying sed method..."
-              queue_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | head -1)
-            fi
-            
-            # 方法3: 如果方法2失败，尝试直接解析body
-            if [ -z "$queue_data" ]; then
-              echo "⚠️ Failed to extract JSON with sed, trying direct body parsing..."
-              queue_data=$(echo "$issue_content" | jq -r '.body' | grep -oP '\{[^}]*"queue"[^}]*\}' | head -1)
-            fi
-            
-            echo "$queue_data"
+            echo "$issue_content" | jq -r '.body' | grep -oP '```json\s*\K[^{]*\{.*\}' | head -1
           }
           
           # 队列管理issue编号
@@ -935,52 +918,20 @@ jobs:
             # 使用通用函数提取队列数据
             QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
             
-            # 如果仍然失败，初始化空队列
+            # 如果提取失败，直接退出
             if [ -z "$QUEUE_DATA" ]; then
-              echo "Initializing empty queue..."
-              QUEUE_DATA='{"queue":[],"run_id":null}'
-              
-              # 创建初始队列管理内容
-              INITIAL_BODY="## 构建队列管理
-
-            **最后更新时间：** $(date '+%Y-%m-%d %H:%M:%S')
-
-            ### 当前状态
-            - **构建锁状态：** 空闲 🔓
-            - **当前构建：** 无
-            - **锁持有者：** 无
-            - **运行ID：** 无
-
-            ### 构建队列
-            - **当前数量：** 0/5
-            - **Issue触发限制：** 最多3个
-            - **手动触发限制：** 最多5个
-
-            ---
-
-            ### 队列数据
-            \`\`\`json
-            $QUEUE_DATA
-            \`\`\`"
-              
-              # 更新队列管理issue
-              curl -X PATCH \
-                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                -H "Accept: application/vnd.github.v3+json" \
-                -H "Content-Type: application/json" \
-                "https://api.github.com/repos/${{ github.repository }}/issues/$QUEUE_MANAGER_ISSUE" \
-                -d "$(jq -n --arg body "$INITIAL_BODY" '{"body": $body}')"
+              echo "❌ Failed to extract queue JSON, aborting."
+              exit 1
             fi
             
-            # 验证JSON格式并兼容旧版本数据
+            # 验证JSON格式
             if ! echo "$QUEUE_DATA" | jq . > /dev/null 2>&1; then
-              echo "❌ Invalid JSON format, using fallback..."
-              QUEUE_DATA='{"queue":[],"run_id":null}'
-            else
-              # 兼容旧版本：移除不需要的字段，确保只有queue和run_id
-              QUEUE_DATA=$(echo "$QUEUE_DATA" | jq '{queue: .queue, run_id: .run_id // null}')
-              echo "✅ Queue data normalized to new format"
+              echo "❌ Invalid JSON format in queue data, aborting."
+              exit 1
             fi
+            
+            # 强制单行JSON
+            QUEUE_DATA=$(echo "$QUEUE_DATA" | jq -c .)
           fi
           
           # 验证JSON格式
@@ -1049,24 +1000,7 @@ jobs:
           # 通用函数：从队列管理issue中提取JSON数据
           extract_queue_json() {
             local issue_content="$1"
-            local queue_data=""
-            
-            # 方法1: 使用grep提取JSON代码块
-            queue_data=$(echo "$issue_content" | jq -r '.body' | grep -oP '```json\K.*?(?=```)' | head -1)
-            
-            # 方法2: 如果方法1失败，使用sed提取
-            if [ -z "$queue_data" ]; then
-              echo "⚠️ Failed to extract JSON with grep, trying sed method..."
-              queue_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | head -1)
-            fi
-            
-            # 方法3: 如果方法2失败，尝试直接解析body
-            if [ -z "$queue_data" ]; then
-              echo "⚠️ Failed to extract JSON with sed, trying direct body parsing..."
-              queue_data=$(echo "$issue_content" | jq -r '.body' | grep -oP '\{[^}]*"queue"[^}]*\}' | head -1)
-            fi
-            
-            echo "$queue_data"
+            echo "$issue_content" | jq -r '.body' | grep -oP '```json\s*\K[^{]*\{.*\}' | head -1
           }
           
           # 从Issue #1实时获取最新队列数据
@@ -1079,18 +1013,27 @@ jobs:
           # 检查issue是否存在
           if echo "$QUEUE_MANAGER_CONTENT" | jq -e '.message' | grep -q "Not Found"; then
             echo "❌ Queue manager issue #$QUEUE_MANAGER_ISSUE not found"
-            echo "Creating initial queue data..."
-            QUEUE_DATA='{"queue":[],"run_id":null}'
-          else
-            # 使用通用函数提取队列数据
-            QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
-            
-            # 如果仍然失败，使用默认数据
-            if [ -z "$QUEUE_DATA" ]; then
-              echo "⚠️ Failed to extract JSON, using default queue data..."
-              QUEUE_DATA='{"queue":[],"run_id":null}'
-            fi
+            exit 1
           fi
+          
+          # 使用通用函数提取队列数据
+          QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
+          
+          # 如果提取失败，直接退出
+          if [ -z "$QUEUE_DATA" ]; then
+            echo "❌ Failed to extract queue JSON, aborting."
+            exit 1
+          fi
+          
+          # 验证JSON格式
+          if ! echo "$QUEUE_DATA" | jq . > /dev/null 2>&1; then
+            echo "❌ Invalid JSON format in queue data, aborting."
+            exit 1
+          fi
+          
+          # 强制单行JSON
+          QUEUE_DATA=$(echo "$QUEUE_DATA" | jq -c .)
+
           TOTAL_QUEUE_COUNT=$(echo "$QUEUE_DATA" | jq '.queue | length // 0')
           ISSUE_QUEUE_COUNT=$(echo "$QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "issue")) | length // 0')
           WORKFLOW_QUEUE_COUNT=$(echo "$QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "workflow_dispatch")) | length // 0')
@@ -1183,32 +1126,33 @@ jobs:
             # 通用函数：从队列管理issue中提取JSON数据
             extract_queue_json() {
               local issue_content="$1"
-              local queue_data=""
-              
-              # 使用sed提取JSON代码块，正确处理多行
-              queue_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | tr '\n' ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-              
-              echo "$queue_data"
+              echo "$issue_content" | jq -r '.body' | grep -oP '```json\s*\K[^{]*\{.*\}' | head -1
             }
             
             # 提取队列数据
             QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
             
-            # 如果提取失败，使用默认数据
+            # 调试输出
+            echo "Debug: QUEUE_MANAGER_CONTENT length: $(echo "$QUEUE_MANAGER_CONTENT" | wc -c)"
+            echo "Debug: Issue body preview: $(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | head -5)"
+            echo "Debug: Extracted QUEUE_DATA: '$QUEUE_DATA'"
+            
+            # 如果提取失败，直接退出
             if [ -z "$QUEUE_DATA" ]; then
-              echo "⚠️ Failed to extract JSON, using default queue data..."
-              QUEUE_DATA='{"queue":[],"run_id":null,"version":1}'
+              echo "❌ Failed to extract queue JSON, aborting."
+              echo "Debug: Issue body contains:"
+              echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | head -20
+              exit 1
             fi
             
-            # 验证JSON格式并兼容旧版本
+            # 验证JSON格式
             if ! echo "$QUEUE_DATA" | jq . > /dev/null 2>&1; then
-              echo "❌ Invalid JSON format in queue data, using fallback..."
-              QUEUE_DATA='{"queue":[],"run_id":null,"version":1}'
-            else
-              # 兼容旧版本：确保有version字段
-              QUEUE_DATA=$(echo "$QUEUE_DATA" | jq '{queue: .queue, run_id: .run_id // null, version: (.version // 1)}')
-              echo "✅ Queue data normalized to new format"
+              echo "❌ Invalid JSON format in queue data, aborting."
+              exit 1
             fi
+            
+            # 强制单行JSON
+            QUEUE_DATA=$(echo "$QUEUE_DATA" | jq -c .)
             
             # 获取当前版本号
             CURRENT_VERSION=$(echo "$QUEUE_DATA" | jq -r '.version // 1')
@@ -1261,6 +1205,9 @@ jobs:
             \`\`\`json
             $UPDATED_QUEUE_DATA
             \`\`\`"
+            
+            # 在写入issue前，强制单行JSON
+            UPDATED_QUEUE_DATA=$(echo "$UPDATED_QUEUE_DATA" | jq -c .)
             
             # 尝试更新issue
             UPDATE_RESPONSE=$(curl -s -X PATCH \
@@ -1374,28 +1321,26 @@ jobs:
             # 通用函数：从队列管理issue中提取JSON数据
             extract_queue_json() {
               local issue_content="$1"
-              local queue_data=""
-              
-              # 使用sed提取JSON代码块，正确处理多行
-              queue_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | tr '\n' ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-              
-              echo "$queue_data"
+              echo "$issue_content" | jq -r '.body' | grep -oP '```json\s*\K[^{]*\{.*\}' | head -1
             }
             
             # 提取队列数据
             CURRENT_QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
             
-            # 如果提取失败，使用默认数据
+            # 如果提取失败，直接退出
             if [ -z "$CURRENT_QUEUE_DATA" ]; then
-              echo "⚠️ Failed to extract JSON, using default queue data..."
-              CURRENT_QUEUE_DATA='{"queue":[],"run_id":null,"version":1}'
+              echo "❌ Failed to extract queue JSON, aborting."
+              exit 1
             fi
             
             # 验证JSON格式
             if ! echo "$CURRENT_QUEUE_DATA" | jq . > /dev/null 2>&1; then
-              echo "❌ Invalid JSON format, using fallback..."
-              CURRENT_QUEUE_DATA='{"queue":[],"run_id":null,"version":1}'
+              echo "❌ Invalid JSON format in queue data, aborting."
+              exit 1
             fi
+            
+            # 强制单行JSON
+            CURRENT_QUEUE_DATA=$(echo "$CURRENT_QUEUE_DATA" | jq -c .)
             
             # 检查当前构建是否在队列中
             ISSUE_IN_QUEUE=$(echo "$CURRENT_QUEUE_DATA" | \
@@ -1485,8 +1430,18 @@ jobs:
                       
                       CURRENT_QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
                       if [ -z "$CURRENT_QUEUE_DATA" ]; then
-                        CURRENT_QUEUE_DATA='{"queue":[],"run_id":null,"version":1}'
+                        echo "❌ Failed to extract queue JSON during retry, aborting."
+                        exit 1
                       fi
+                      
+                      # 验证JSON格式
+                      if ! echo "$CURRENT_QUEUE_DATA" | jq . > /dev/null 2>&1; then
+                        echo "❌ Invalid JSON format in queue data during retry, aborting."
+                        exit 1
+                      fi
+                      
+                      # 强制单行JSON
+                      CURRENT_QUEUE_DATA=$(echo "$CURRENT_QUEUE_DATA" | jq -c .)
                     else
                       echo "Max lock retries reached, continuing without lock..."
                       break 2
@@ -1569,28 +1524,26 @@ jobs:
             # 通用函数：从队列管理issue中提取JSON数据
             extract_queue_json() {
               local issue_content="$1"
-              local queue_data=""
-              
-              # 使用sed提取JSON代码块，正确处理多行
-              queue_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | tr '\n' ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-              
-              echo "$queue_data"
+              echo "$issue_content" | jq -r '.body' | grep -oP '```json\s*\K[^{]*\{.*\}' | head -1
             }
             
             # 使用通用函数提取队列数据
             CURRENT_QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
             
-            # 如果仍然失败，使用默认数据
+            # 如果提取失败，直接退出
             if [ -z "$CURRENT_QUEUE_DATA" ]; then
-              echo "⚠️ Failed to extract JSON, using default queue data..."
-              CURRENT_QUEUE_DATA='{"queue":[],"run_id":null,"version":1}'
+              echo "❌ Failed to extract queue JSON, aborting."
+              exit 1
             fi
             
             # 验证JSON格式
             if ! echo "$CURRENT_QUEUE_DATA" | jq . > /dev/null 2>&1; then
-              echo "❌ Invalid JSON format, using fallback..."
-              CURRENT_QUEUE_DATA='{"queue":[],"run_id":null,"version":1}'
+              echo "❌ Invalid JSON format in queue data, aborting."
+              exit 1
             fi
+            
+            # 强制单行JSON
+            CURRENT_QUEUE_DATA=$(echo "$CURRENT_QUEUE_DATA" | jq -c .)
             
             # 获取当前版本号
             CURRENT_VERSION=$(echo "$CURRENT_QUEUE_DATA" | jq -r '.version // 1')
@@ -1631,6 +1584,9 @@ jobs:
             \`\`\`json
             $UPDATED_QUEUE_DATA
             \`\`\`"
+            
+            # 在写入issue前，强制单行JSON
+            UPDATED_QUEUE_DATA=$(echo "$UPDATED_QUEUE_DATA" | jq -c .)
             
             # 尝试更新队列管理issue
             UPDATE_RESPONSE=$(curl -s -X PATCH \
@@ -1774,28 +1730,26 @@ jobs:
             # 通用函数：从队列管理issue中提取JSON数据
             extract_queue_json() {
               local issue_content="$1"
-              local queue_data=""
-              
-              # 使用sed提取JSON代码块，正确处理多行
-              queue_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```' | tr '\n' ' ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-              
-              echo "$queue_data"
+              echo "$issue_content" | jq -r '.body' | grep -oP '```json\s*\K[^{]*\{.*\}' | head -1
             }
             
             # 使用通用函数提取队列数据
             CURRENT_QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
             
-            # 如果仍然失败，使用默认数据
+            # 如果提取失败，直接退出
             if [ -z "$CURRENT_QUEUE_DATA" ]; then
-              echo "⚠️ Failed to extract JSON, using default queue data..."
-              CURRENT_QUEUE_DATA='{"queue":[],"run_id":null,"version":1}'
+              echo "❌ Failed to extract queue JSON, aborting."
+              exit 1
             fi
             
             # 验证JSON格式
             if ! echo "$CURRENT_QUEUE_DATA" | jq . > /dev/null 2>&1; then
-              echo "❌ Invalid JSON format, using fallback..."
-              CURRENT_QUEUE_DATA='{"queue":[],"run_id":null,"version":1}'
+              echo "❌ Invalid JSON format in queue data, aborting."
+              exit 1
             fi
+            
+            # 强制单行JSON
+            CURRENT_QUEUE_DATA=$(echo "$CURRENT_QUEUE_DATA" | jq -c .)
             
             # 获取当前版本号
             CURRENT_VERSION=$(echo "$CURRENT_QUEUE_DATA" | jq -r '.version // 1')
