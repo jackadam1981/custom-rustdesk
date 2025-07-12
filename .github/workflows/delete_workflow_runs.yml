@@ -1,0 +1,97 @@
+name: Delete Workflow Runs
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '选择操作模式'
+        required: true
+        default: '模拟模式'
+        type: choice
+        options:
+          - 模拟模式
+          - 删除模式
+      max_count:
+        description: '最多删除多少个runs（0表示删除所有）'
+        required: false
+        default: 100
+        type: number
+
+jobs:
+  delete_runs:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Setup GitHub CLI
+        run: |
+          type -p curl >/dev/null || (sudo apt update && sudo apt install curl -y)
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+          && sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+          && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+          && sudo apt update \
+          && sudo apt install gh -y
+
+      - name: Authenticate
+        run: |
+          if [ -n "${{ secrets.ISSUE_TOKEN }}" ]; then
+            echo "${{ secrets.ISSUE_TOKEN }}" | gh auth login --with-token
+          else
+            echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+          fi
+
+      - name: List and Delete Runs
+        run: |
+          echo "=== 获取Workflow Runs ==="
+          
+          # 获取所有已完成的runs
+          RUNS_DATA=$(gh api repos/${{ github.repository }}/actions/runs --paginate --jq '.workflow_runs[] | select(.status == "completed") | {id: .id, name: .name, created_at: .created_at}')
+          
+          if [ -z "$RUNS_DATA" ]; then
+            echo "✅ 没有找到已完成的workflow runs"
+            exit 0
+          fi
+          
+          # 限制数量
+          if [ "${{ github.event.inputs.max_count }}" -gt 0 ]; then
+            RUNS_DATA=$(echo "$RUNS_DATA" | head -n ${{ github.event.inputs.max_count }})
+          fi
+          
+          # 计算总数
+          RUNS_COUNT=$(echo "$RUNS_DATA" | grep -c '^{' || echo "0")
+          
+          echo "找到 $RUNS_COUNT 个符合条件的workflow runs"
+          
+          if [ "${{ github.event.inputs.mode }}" = "模拟模式" ]; then
+            echo "🔍 模拟模式：将预览删除 $RUNS_COUNT 个workflow runs"
+            echo "要实际删除，请选择 '删除模式'"
+          else
+            echo "⚠️ 删除模式：将删除 $RUNS_COUNT 个workflow runs"
+            
+            DELETED=0
+            FAILED=0
+            
+            echo "$RUNS_DATA" | jq -c '.' | while read -r run; do
+              RUN_ID=$(echo "$run" | jq -r '.id')
+              RUN_NAME=$(echo "$run" | jq -r '.name')
+              
+              echo "正在删除 Workflow Run #$RUN_ID ($RUN_NAME)..."
+              
+              if gh api repos/${{ github.repository }}/actions/runs/$RUN_ID -X DELETE; then
+                echo "✅ 删除 Workflow Run #$RUN_ID 成功"
+                DELETED=$((DELETED + 1))
+              else
+                echo "❌ 删除 Workflow Run #$RUN_ID 失败"
+                FAILED=$((FAILED + 1))
+              fi
+              
+              sleep 1
+            done
+            
+            echo "删除完成：成功 $DELETED 个，失败 $FAILED 个"
+          fi
+          
+          # 显示剩余runs数量
+          REMAINING=$(gh api repos/${{ github.repository }}/actions/runs --jq '.total_count')
+          echo "剩余workflow runs总数：$REMAINING" 
