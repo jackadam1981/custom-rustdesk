@@ -1,4 +1,4 @@
-name: 07 - Finish
+name: 05 - Finish
 
 on:
   workflow_call:
