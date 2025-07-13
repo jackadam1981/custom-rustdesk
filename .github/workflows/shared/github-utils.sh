@@ -70,34 +70,34 @@ extract_queue_json() {
   
   # 提取JSON数据 - 使用更健壮的方法
   local json_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```json' | grep -v '```' | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-  echo "DEBUG: Primary extraction result: '$json_data'"
+  echo "DEBUG: Primary extraction result: '$json_data'" >&2
   
   # 如果上面的方法失败，尝试备用方法
   if [ -z "$json_data" ] || ! echo "$json_data" | jq . > /dev/null 2>&1; then
-    echo "⚠️ Primary JSON extraction failed, trying backup method..."
+    echo "⚠️ Primary JSON extraction failed, trying backup method..." >&2
     # 使用更兼容的方法，避免使用 -P 标志
     json_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | sed '1d;$d' | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-    echo "DEBUG: Secondary extraction result: '$json_data'"
+    echo "DEBUG: Secondary extraction result: '$json_data'" >&2
   fi
   
   # 如果还是失败，尝试第三种方法
   if [ -z "$json_data" ] || ! echo "$json_data" | jq . > /dev/null 2>&1; then
-    echo "⚠️ Secondary JSON extraction failed, trying third method..."
+    echo "⚠️ Secondary JSON extraction failed, trying third method..." >&2
     json_data=$(echo "$issue_content" | jq -r '.body' | grep -A 100 '```json' | grep -B 100 '```' | grep -v '```json' | grep -v '```' | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-    echo "DEBUG: Third extraction result: '$json_data'"
+    echo "DEBUG: Third extraction result: '$json_data'" >&2
   fi
   
   # 如果还是失败，返回默认JSON
   if [ -z "$json_data" ] || ! echo "$json_data" | jq . > /dev/null 2>&1; then
-    echo "⚠️ JSON extraction failed, returning default JSON"
-    echo "DEBUG: Final json_data before default: '$json_data'"
+    echo "⚠️ JSON extraction failed, returning default JSON" >&2
+    echo "DEBUG: Final json_data before default: '$json_data'" >&2
     json_data='{"queue":[],"run_id":null,"version":1}'
   fi
   
   # 最终验证
   if ! echo "$json_data" | jq . > /dev/null 2>&1; then
-    echo "❌ Critical error: Even default JSON is invalid!"
-    echo "DEBUG: json_data: '$json_data'"
+    echo "❌ Critical error: Even default JSON is invalid!" >&2
+    echo "DEBUG: json_data: '$json_data'" >&2
     return 1
   fi
   
@@ -106,12 +106,12 @@ extract_queue_json() {
     local encrypted_params=$(echo "$json_data" | jq -r '.encrypted_params // empty')
     
     if [ -n "$encrypted_params" ]; then
-      echo "🔐 Found encrypted parameters, decrypting..."
+      echo "🔐 Found encrypted parameters, decrypting..." >&2
       
       # 解密参数
       local decrypted_params=$(decrypt_params "$encrypted_params" "${ENCRYPTION_KEY}")
       if [ $? -ne 0 ]; then
-        echo "❌ Failed to decrypt parameters"
+        echo "❌ Failed to decrypt parameters" >&2
         return 1
       fi
       
