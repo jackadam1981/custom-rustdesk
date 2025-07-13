@@ -394,28 +394,28 @@ jobs:
             UPDATED_WORKFLOW_COUNT=$(echo "$NEW_QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "workflow_dispatch")) | length // 0')
             
             CURRENT_TIME=$(date '+%Y-%m-%d %H:%M:%S')
-            UPDATED_BODY: |
-              ## 构建队列管理
+            UPDATED_BODY="## 构建队列管理
 
-              **最后更新时间：** $CURRENT_TIME
+            **最后更新时间：** $CURRENT_TIME
 
-              ### 当前状态
-              - **构建锁状态：** 空闲 🔓
-              - **当前构建：** 无
-              - **锁持有者：** 无
-              - **版本：** $CURRENT_VERSION
+            ### 当前状态
+            - **构建锁状态：** 空闲 🔓
+            - **当前构建：** 无
+            - **锁持有者：** 无
+            - **版本：** $CURRENT_VERSION
 
-              ### 构建队列
-              - **当前数量：** $UPDATED_TOTAL_COUNT/5
-              - **Issue触发：** $UPDATED_ISSUE_COUNT/3
-              - **手动触发：** $UPDATED_WORKFLOW_COUNT/5
+            ### 构建队列
+            - **当前数量：** $UPDATED_TOTAL_COUNT/5
+            - **Issue触发：** $UPDATED_ISSUE_COUNT/3
+            - **手动触发：** $UPDATED_WORKFLOW_COUNT/5
 
-              ---
+            ---
 
-              ### 队列数据
-              ```json
-              $NEW_QUEUE_DATA
-              ```
+            ### 队列数据
+            \`\`\`json
+            $NEW_QUEUE_DATA
+            \`\`\`
+            "
             
             if update_queue_issue "$QUEUE_MANAGER_ISSUE" "$UPDATED_BODY"; then
               echo "✅ Successfully joined queue"
