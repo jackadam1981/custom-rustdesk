@@ -147,15 +147,12 @@ get_queue_manager_content() {
 update_queue_issue() {
   local queue_issue_number="${1:-1}"
   local body="$2"
-  
   local response=$(curl -s -X PATCH \
     -H "Authorization: token $GITHUB_TOKEN" \
     -H "Accept: application/vnd.github.v3+json" \
     -H "Content-Type: application/json" \
     "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/$queue_issue_number" \
     -d "$(jq -n --arg body "$body" '{"body": $body}')")
-  
-  # 验证更新是否成功
   if echo "$response" | jq -e '.id' > /dev/null 2>&1; then
     echo "✅ Queue update successful"
     return 0
@@ -326,17 +323,13 @@ validate_server_parameters() {
 reset_queue_to_default() {
   local queue_issue_number="${1:-1}"
   local reason="${2:-自动重置}"
-  
   echo "Resetting queue to default state..."
   echo "Queue issue: #$queue_issue_number"
   echo "Reason: $reason"
-  
-  # 默认队列数据
   local reset_queue_data='{"queue":[],"run_id":null,"version":1}'
   local now=$(date '+%Y-%m-%d %H:%M:%S')
-  
-  # 构建重置后的issue内容
-  local reset_body="## 构建队列管理
+  local reset_body=$(cat <<EOF
+## 构建队列管理
 
 **最后更新时间：** $now
 
@@ -358,11 +351,11 @@ reset_queue_to_default() {
 **重置原因：** $reason
 
 ### 队列数据
-\`\`\`json
+```json
 $reset_queue_data
-\`\`\`"
-  
-  # 使用通用函数更新队列issue
+```
+EOF
+)
   if update_queue_issue "$queue_issue_number" "$reset_body"; then
     echo "✅ Queue reset successful"
     return 0
