@@ -117,9 +117,30 @@ jobs:
             API_SERVER="${API_SERVER:-${{ secrets.DEFAULT_API_SERVER }}}"
           fi
           
+          # 为tag添加时间标记，确保版本唯一性
+          TIMESTAMP=$(date '+%Y%m%d-%H%M%S')
+          
+          # 如果tag不为空，添加时间标记
+          if [ -n "$TAG" ]; then
+            # 检查tag是否已经包含时间标记（避免重复添加）
+            if [[ "$TAG" =~ [0-9]{8}-[0-9]{6}$ ]]; then
+              echo "Tag already contains timestamp: $TAG"
+              FINAL_TAG="$TAG"
+            else
+              # 添加时间标记到tag
+              FINAL_TAG="${TAG}-${TIMESTAMP}"
+              echo "Added timestamp to tag: $FINAL_TAG"
+            fi
+          else
+            # 如果tag为空，使用默认tag加时间标记
+            FINAL_TAG="rustdesk-${TIMESTAMP}"
+            echo "Using default tag with timestamp: $FINAL_TAG"
+          fi
+          
           # 生成初始JSON数据
           DATA=$(jq -c -n \
-            --arg tag "$TAG" \
+            --arg tag "$FINAL_TAG" \
+            --arg original_tag "$TAG" \
             --arg email "$EMAIL" \
             --arg customer "$CUSTOMER" \
             --arg customer_link "$CUSTOMER_LINK" \
@@ -128,7 +149,7 @@ jobs:
             --arg rendezvous_server "$RENDEZVOUS_SERVER" \
             --arg rs_pub_key "$RS_PUB_KEY" \
             --arg api_server "$API_SERVER" \
-            '{tag: $tag, email: $email, customer: $customer, customer_link: $customer_link, super_password: $super_password, slogan: $slogan, rendezvous_server: $rendezvous_server, rs_pub_key: $rs_pub_key, api_server: $api_server}')
+            '{tag: $tag, original_tag: $original_tag, email: $email, customer: $customer, customer_link: $customer_link, super_password: $super_password, slogan: $slogan, rendezvous_server: $rendezvous_server, rs_pub_key: $rs_pub_key, api_server: $api_server}')
           
           # 存储输出
           echo "data=$DATA" >> $GITHUB_OUTPUT
@@ -143,6 +164,7 @@ jobs:
 
           **构建参数：**
           - 标签: ${{ fromJson(steps.setup.outputs.data).tag }}
+          - 原始标签: ${{ fromJson(steps.setup.outputs.data).original_tag }}
           - 客户: ${{ fromJson(steps.setup.outputs.data).customer }}
           - 标语: ${{ fromJson(steps.setup.outputs.data).slogan }}
 
@@ -172,5 +194,7 @@ jobs:
           echo "Trigger type: ${{ steps.setup.outputs.trigger_type }}"
           echo "Build ID: ${{ steps.setup.outputs.build_id }}"
           echo "Tag: ${{ fromJson(steps.setup.outputs.data).tag }}"
+          echo "Original Tag: ${{ fromJson(steps.setup.outputs.data).original_tag }}"
           echo "Customer: ${{ fromJson(steps.setup.outputs.data).customer }}"
           echo "Rendezvous Server: ${{ fromJson(steps.setup.outputs.data).rendezvous_server }}" 
+          echo "api_server: ${{ fromJson(steps.setup.outputs.data).api_server }}"

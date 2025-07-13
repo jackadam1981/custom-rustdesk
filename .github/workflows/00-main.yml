@@ -9,31 +9,51 @@ on:
   # 处理手动触发
   workflow_dispatch:
     inputs:
-      project_name:
-        description: "项目名称"
-        required: true
+      tag:
+        description: "标签名称"
+        required: false
+        default: "vCustom"
         type: string
-      project_url:
-        description: "项目URL"
-        required: true
+      email:
+        description: "邮件地址"
+        required: false
+        default: "rustdesk@example.com"
+        type: string
+      customer:
+        description: "客户名称"
+        required: false
+        default: "自由工作室"
+        type: string
+      customer_link:
+        description: "客户链接"
+        required: false
+        default: "https://rustdesk.com"
+        type: string
+      super_password:
+        description: "超级密码"
+        required: false
+        default: "123456"
+        type: string
+      slogan:
+        description: "标语"
+        required: false
+        default: "安全可靠的远程桌面解决方案"
         type: string
       rendezvous_server:
-        description: "Rendezvous服务器地址"
-        required: true
+        description: "服务器地址"
+        required: false
+        default: "1.2.3.4:21117"
+        type: string
+      rs_pub_key:
+        description: "公钥"
+        required: false
+        default: "xxxxx"
         type: string
       api_server:
         description: "API服务器地址"
-        required: true
-        type: string
-      email:
-        description: "联系邮箱（可选）"
         required: false
+        default: "https://api.example.com"
         type: string
-      build_script:
-        description: "构建脚本"
-        required: true
-        type: string
-        default: "echo 'Default build script'"
 
 jobs:
   # 第一阶段：触发和参数提取

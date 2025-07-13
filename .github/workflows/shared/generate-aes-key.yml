@@ -1,0 +1,14 @@
+name: Generate AES Key
+
+on:
+  workflow_dispatch:
+
+jobs:
+  generate-key:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate 32-byte AES key (hex)
+        run: |
+          echo "Your new AES-256 key (hex, 64 chars):"
+          openssl rand -hex 32
+          echo "请将此密钥手动添加到仓库 Settings → Secrets and variables → Actions → Variables，变量名 ENCRYPTION_KEY" 

@@ -1,10 +1,96 @@
 # GitHub API 工具函数
 # 这个文件包含通用的GitHub API调用和队列操作函数
 
-# 通用函数：从队列管理issue中提取JSON数据
+# AES 加密/解密函数
+# ENCRYPTION_KEY 由 workflow 通过 ${{ secrets.ENCRYPTION_KEY }} 传入环境变量
+
+# 加密函数：将 JSON 数据加密为 base64 字符串
+encrypt_params() {
+  local json_data="$1"
+  local encryption_key="${ENCRYPTION_KEY}"
+  
+  if [ -z "$json_data" ]; then
+    echo "❌ No data to encrypt"
+    return 1
+  fi
+  
+  if [ -z "$encryption_key" ]; then
+    echo "❌ ENCRYPTION_KEY not set"
+    return 1
+  fi
+  
+  local iv=$(openssl rand -hex 16)
+  local encrypted=$(echo -n "$json_data" | openssl enc -aes-256-cbc -iv "$iv" -K "$encryption_key" -base64 2>/dev/null)
+  if [ $? -ne 0 ]; then
+    echo "❌ Encryption failed"
+    return 1
+  fi
+  echo "${iv}:${encrypted}"
+}
+
+# 解密函数：将加密的 base64 字符串解密为 JSON 数据
+decrypt_params() {
+  local encrypted_data="$1"
+  local encryption_key="${ENCRYPTION_KEY}"
+  
+  if [ -z "$encrypted_data" ]; then
+    echo "❌ No data to decrypt"
+    return 1
+  fi
+  
+  if [ -z "$encryption_key" ]; then
+    echo "❌ ENCRYPTION_KEY not set"
+    return 1
+  fi
+  
+  local iv=$(echo "$encrypted_data" | cut -d: -f1)
+  local encrypted=$(echo "$encrypted_data" | cut -d: -f2-)
+  if [ -z "$iv" ] || [ -z "$encrypted" ]; then
+    echo "❌ Invalid encrypted data format"
+    return 1
+  fi
+  local decrypted=$(echo "$encrypted" | openssl enc -aes-256-cbc -d -iv "$iv" -K "$encryption_key" -base64 2>/dev/null)
+  if [ $? -ne 0 ]; then
+    echo "❌ Decryption failed"
+    return 1
+  fi
+  echo "$decrypted"
+}
+
+# 生成新的加密密钥（用于初始化）
+generate_encryption_key() {
+  openssl rand -hex 32
+}
+
+# 通用函数：从队列管理issue中提取JSON数据（支持加密）
 extract_queue_json() {
   local issue_content="$1"
-  echo "$issue_content" | jq -r '.body' | grep -oP '```json\s*\K[^{]*\{.*\}' | head -1
+  local decrypt_encrypted="${2:-false}"
+  
+  # 提取JSON数据
+  local json_data=$(echo "$issue_content" | jq -r '.body' | grep -oP '```json\s*\K[^{]*\{.*\}' | head -1)
+  
+  if [ "$decrypt_encrypted" = "true" ]; then
+    # 检查是否包含加密参数
+    local encrypted_params=$(echo "$json_data" | jq -r '.encrypted_params // empty')
+    
+    if [ -n "$encrypted_params" ]; then
+      echo "🔐 Found encrypted parameters, decrypting..."
+      
+      # 解密参数
+      local decrypted_params=$(decrypt_params "$encrypted_params" "${ENCRYPTION_KEY}")
+      if [ $? -ne 0 ]; then
+        echo "❌ Failed to decrypt parameters"
+        return 1
+      fi
+      
+      # 将解密后的参数合并到JSON中
+      local decrypted_json=$(echo "$decrypted_params" | jq -c .)
+      json_data=$(echo "$json_data" | jq --argjson params "$decrypted_json" '. + $params | del(.encrypted_params)')
+    fi
+  fi
+  
+  echo "$json_data"
 }
 
 # 通用函数：验证JSON格式
@@ -278,7 +364,7 @@ cleanup_queue_data() {
   local cleaned_queue_data=$(echo "$queue_data" | \
     jq --arg new_version "$((current_version + 1))" '
     # 移除重复项
-    .queue = (.queue | group_by(.issue_number) | map(.[0]))
+    .queue = (.queue | group_by(.build_id) | map(.[0]))
     # 重置异常锁
     | .run_id = null
     | .version = ($new_version | tonumber)
@@ -288,8 +374,8 @@ cleanup_queue_data() {
   if [ ${#invalid_issues[@]} -gt 0 ]; then
     for invalid_issue in "${invalid_issues[@]}"; do
       cleaned_queue_data=$(echo "$cleaned_queue_data" | \
-        jq --arg issue_number "$invalid_issue" \
-        '.queue = (.queue | map(select(.issue_number != $issue_number)))')
+        jq --arg build_id "$invalid_issue" \
+        '.queue = (.queue | map(select(.build_id != $build_id)))')
     done
   fi
   
@@ -360,7 +446,7 @@ update_queue_status() {
   local updated_queue_data=$(echo "$validated_queue_data" | \
     jq --arg project "$project_name" --arg status "$status" '
     .queue = (.queue | map(
-      if .project_name == $project then
+      if .build_title == $project then
         . + {"status": $status, "updated_at": now | strftime("%Y-%m-%d %H:%M:%S")}
       else
         .
@@ -386,8 +472,8 @@ update_queue_status() {
   
   if [ "$(echo "$updated_queue_data" | jq -r '.run_id // "null"')" != "null" ]; then
     lock_status="占用 🔒"
-    current_build=$(echo "$updated_queue_data" | jq -r '.queue[] | select(.status == "building") | .project_name // "未知"')
-    lock_holder=$(echo "$updated_queue_data" | jq -r '.queue[] | select(.status == "building") | .issue_number // "未知"')
+    current_build=$(echo "$updated_queue_data" | jq -r '.queue[] | select(.status == "building") | .build_title // "未知"')
+    lock_holder=$(echo "$updated_queue_data" | jq -r '.queue[] | select(.status == "building") | .build_id // "未知"')
   fi
   
   # 更新队列管理issue
@@ -424,6 +510,64 @@ $updated_queue_data
     return 0
   else
     echo "❌ Queue status update failed for $project_name"
+    return 1
+  fi
+}
+
+# 通用函数：创建包含加密参数的队列数据
+create_encrypted_queue_data() {
+  local queue_data="$1"
+  local sensitive_params="$2"
+  
+  if [ -z "$queue_data" ]; then
+    echo "❌ Queue data not provided"
+    return 1
+  fi
+  
+  # 加密敏感参数
+  local encrypted_params=""
+  if [ -n "$sensitive_params" ]; then
+    encrypted_params=$(encrypt_params "$sensitive_params" "${ENCRYPTION_KEY}")
+    if [ $? -ne 0 ]; then
+      echo "❌ Failed to encrypt parameters"
+      return 1
+    fi
+  fi
+  
+  # 创建包含加密参数的队列数据
+  local final_queue_data
+  if [ -n "$encrypted_params" ]; then
+    final_queue_data=$(echo "$queue_data" | jq --arg encrypted "$encrypted_params" '. + {"encrypted_params": $encrypted}')
+  else
+    final_queue_data="$queue_data"
+  fi
+  
+  echo "$final_queue_data"
+}
+
+# 通用函数：更新队列issue（支持加密参数）
+update_queue_issue_with_encryption() {
+  local queue_issue_number="$1"
+  local queue_data="$2"
+  local sensitive_params="$3"
+  local body_template="$4"
+  
+  # 创建包含加密参数的队列数据
+  local encrypted_queue_data=$(create_encrypted_queue_data "$queue_data" "$sensitive_params")
+  if [ $? -ne 0 ]; then
+    echo "❌ Failed to create encrypted queue data"
+    return 1
+  fi
+  
+  # 使用模板创建issue body
+  local body=$(echo "$body_template" | sed "s|__QUEUE_DATA__|$encrypted_queue_data|g")
+  
+  # 更新issue
+  if update_queue_issue "$queue_issue_number" "$body"; then
+    echo "✅ Queue update with encryption successful"
+    return 0
+  else
+    echo "❌ Queue update with encryption failed"
     return 1
   fi
 }

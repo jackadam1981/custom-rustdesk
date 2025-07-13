@@ -37,6 +37,8 @@ jobs:
           echo "queue_position=$QUEUE_POSITION" >> $GITHUB_OUTPUT
       
       - name: Wait in queue
+        env:
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
         run: |
           # 等待轮到自己的位置并获取构建锁
           echo "Waiting in queue and for build lock..."
@@ -65,10 +67,10 @@ jobs:
           while [ $(($(date +%s) - START_TIME)) -lt $TIMEOUT ]; do
             echo "Checking queue position and lock status... ($(($(date +%s) - START_TIME))s elapsed)"
             
-            # 获取队列数据
+            # 获取队列数据（支持解密）
             QUEUE_MANAGER_ISSUE="1"
             QUEUE_MANAGER_CONTENT=$(get_queue_manager_content "$QUEUE_MANAGER_ISSUE")
-            QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
+            QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT" "true")
             
             # 如果提取失败，直接退出
             if [ -z "$QUEUE_DATA" ]; then
@@ -87,8 +89,8 @@ jobs:
             
             # 检查当前构建是否在队列中
             ISSUE_IN_QUEUE=$(echo "$QUEUE_DATA" | \
-              jq -r --arg issue_number "$CURRENT_BUILD_ID" \
-              '.queue | map(.issue_number) | contains([$issue_number])')
+              jq -r --arg build_id "$CURRENT_BUILD_ID" \
+              '.queue | map(.build_id) | contains([$build_id])')
             
             if [ "$ISSUE_IN_QUEUE" != "true" ]; then
               echo "❌ Build not found in queue, exiting..."
@@ -97,8 +99,8 @@ jobs:
             
             # 检查是否是首位
             CURRENT_POSITION=$(echo "$QUEUE_DATA" | \
-              jq -r --arg issue_number "$CURRENT_BUILD_ID" \
-              '.queue | sort_by(.join_time) | map(.issue_number) | index($issue_number) // empty | . + 1')
+              jq -r --arg build_id "$CURRENT_BUILD_ID" \
+              '.queue | sort_by(.join_time) | map(.build_id) | index($build_id) // empty | . + 1')
             
             if [ "$CURRENT_POSITION" = "1" ]; then
               # 检查锁状态
@@ -107,6 +109,34 @@ jobs:
               if [ "$LOCK_RUN_ID" = "null" ]; then
                 echo "✅ At front of queue and no lock, attempting to acquire lock..."
                 
+                # 获取当前队列项的加密参数
+                CURRENT_ITEM_ENCRYPTED=$(echo "$QUEUE_DATA" | \
+                  jq -r --arg build_id "$CURRENT_BUILD_ID" \
+                  '.queue[] | select(.build_id == $build_id) | .encrypted_params // empty')
+                
+                if [ -z "$CURRENT_ITEM_ENCRYPTED" ]; then
+                  echo "❌ No encrypted parameters found for current build"
+                  exit 1
+                fi
+                
+                # 解密当前队列项的参数
+                CURRENT_ITEM_PARAMS=$(decrypt_params "$CURRENT_ITEM_ENCRYPTED")
+                if [ $? -ne 0 ]; then
+                  echo "❌ Failed to decrypt parameters for current build"
+                  exit 1
+                fi
+                
+                # 提取当前构建的公开信息
+                CURRENT_TAG=$(echo "$CURRENT_ITEM_PARAMS" | jq -r '.tag // empty')
+                CURRENT_CUSTOMER=$(echo "$CURRENT_ITEM_PARAMS" | jq -r '.customer // empty')
+                CURRENT_CUSTOMER_LINK=$(echo "$CURRENT_ITEM_PARAMS" | jq -r '.customer_link // empty')
+                CURRENT_SLOGAN=$(echo "$CURRENT_ITEM_PARAMS" | jq -r '.slogan // empty')
+                
+                echo "🔐 Decrypted parameters for current build:"
+                echo "TAG: $CURRENT_TAG"
+                echo "CUSTOMER: $CURRENT_CUSTOMER"
+                echo "SLOGAN: $CURRENT_SLOGAN"
+                
                 # 重试获取锁
                 for lock_attempt in $(seq 1 $MAX_RETRIES); do
                   echo "Lock attempt $lock_attempt of $MAX_RETRIES..."
@@ -114,11 +144,15 @@ jobs:
                   # 获取当前版本号
                   CURRENT_VERSION=$(echo "$QUEUE_DATA" | jq -r '.version // 1')
                   
-                  # 尝试获取锁
+                  # 尝试获取锁并更新顶层信息
                   UPDATED_QUEUE_DATA=$(echo "$QUEUE_DATA" | \
                     jq --arg run_id "${{ github.run_id }}" \
-                    --arg new_version "$((CURRENT_VERSION + 1))" \
-                    '.run_id = $run_id | .version = ($new_version | tonumber)')
+                       --arg new_version "$((CURRENT_VERSION + 1))" \
+                       --arg tag "$CURRENT_TAG" \
+                       --arg customer "$CURRENT_CUSTOMER" \
+                       --arg customer_link "$CURRENT_CUSTOMER_LINK" \
+                       --arg slogan "$CURRENT_SLOGAN" \
+                    '.run_id = $run_id | .version = ($new_version | tonumber) | .tag = $tag | .customer = $customer | .customer_link = $customer_link | .slogan = $slogan')
                   
                   # 计算队列数量
                   UPDATED_TOTAL_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.queue | length // 0')
@@ -137,9 +171,9 @@ jobs:
                       echo "Retrying lock acquisition in $RETRY_DELAY seconds..."
                       sleep $RETRY_DELAY
                       
-                      # 重新获取队列数据
+                      # 重新获取队列数据（支持解密）
                       QUEUE_MANAGER_CONTENT=$(get_queue_manager_content "$QUEUE_MANAGER_ISSUE")
-                      QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
+                      QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT" "true")
                       if [ -z "$QUEUE_DATA" ]; then
                         echo "❌ Failed to extract queue JSON during retry, aborting."
                         exit 1

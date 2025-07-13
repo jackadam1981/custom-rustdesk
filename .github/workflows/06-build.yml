@@ -11,10 +11,6 @@ on:
         description: "Project URL"
         required: true
         type: string
-      build_script:
-        description: "Build script to execute"
-        required: true
-        type: string
       build_timeout:
         description: "Build timeout in minutes"
         required: false
@@ -27,6 +23,8 @@ jobs:
     name: Build Project
     runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.build_timeout }}
+    env:
+      ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
     
     steps:
       - name: Checkout code
@@ -36,16 +34,78 @@ jobs:
         run: |
           echo "Setting up build environment for ${{ inputs.project_name }}"
           echo "Project URL: ${{ inputs.project_url }}"
-          echo "Build script: ${{ inputs.build_script }}"
+          
+      - name: Get and decrypt build parameters
+        run: |
+          # 加载共享工具函数
+          source .github/workflows/shared/github-utils.yml
+          
+          # 获取队列数据
+          QUEUE_MANAGER_ISSUE="1"
+          QUEUE_MANAGER_CONTENT=$(get_queue_manager_content "$QUEUE_MANAGER_ISSUE")
+          QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
+          
+          if [ $? -ne 0 ]; then
+            echo "❌ Failed to get queue data"
+            exit 1
+          fi
+          
+          # 获取当前构建ID
+          CURRENT_BUILD_ID="${{ github.run_id }}"
+          
+          # 从队列中找到当前构建项
+          CURRENT_QUEUE_ITEM=$(echo "$QUEUE_DATA" | \
+            jq -r --arg build_id "$CURRENT_BUILD_ID" \
+            '.queue[] | select(.build_id == $build_id) // empty')
+          
+          if [ -z "$CURRENT_QUEUE_ITEM" ]; then
+            echo "❌ Current build not found in queue"
+            exit 1
+          fi
+          
+          # 获取当前队列项的加密参数
+          ENCRYPTED_PARAMS=$(echo "$CURRENT_QUEUE_ITEM" | jq -r '.encrypted_params // empty')
+          
+          if [ -z "$ENCRYPTED_PARAMS" ]; then
+            echo "❌ No encrypted parameters found for current build"
+            exit 1
+          fi
+          
+          # 解密参数
+          DECRYPTED_PARAMS=$(decrypt_params "$ENCRYPTED_PARAMS")
+          if [ $? -ne 0 ]; then
+            echo "❌ Failed to decrypt parameters"
+            exit 1
+          fi
+          
+          # 提取构建参数
+          TAG=$(echo "$DECRYPTED_PARAMS" | jq -r '.tag // empty')
+          EMAIL=$(echo "$DECRYPTED_PARAMS" | jq -r '.email // empty')
+          CUSTOMER=$(echo "$DECRYPTED_PARAMS" | jq -r '.customer // empty')
+          SUPER_PASSWORD=$(echo "$DECRYPTED_PARAMS" | jq -r '.super_password // empty')
+          RENDEZVOUS_SERVER=$(echo "$DECRYPTED_PARAMS" | jq -r '.rendezvous_server // empty')
+          API_SERVER=$(echo "$DECRYPTED_PARAMS" | jq -r '.api_server // empty')
+          
+          echo "🔐 Decrypted build parameters:"
+          echo "TAG: $TAG"
+          echo "EMAIL: $EMAIL"
+          echo "CUSTOMER: $CUSTOMER"
+          echo "SUPER_PASSWORD: [HIDDEN]"
+          echo "RENDEZVOUS_SERVER: $RENDEZVOUS_SERVER"
+          echo "API_SERVER: $API_SERVER"
+          
+          # 设置环境变量供后续步骤使用
+          echo "BUILD_TAG=$TAG" >> $GITHUB_ENV
+          echo "BUILD_EMAIL=$EMAIL" >> $GITHUB_ENV
+          echo "BUILD_CUSTOMER=$CUSTOMER" >> $GITHUB_ENV
+          echo "BUILD_SUPER_PASSWORD=$SUPER_PASSWORD" >> $GITHUB_ENV
+          echo "BUILD_RENDEZVOUS_SERVER=$RENDEZVOUS_SERVER" >> $GITHUB_ENV
+          echo "BUILD_API_SERVER=$API_SERVER" >> $GITHUB_ENV
           
       - name: Execute build script
         run: |
           echo "Starting build process..."
-          echo "Build script: ${{ inputs.build_script }}"
-          
-          # Execute the build script
-          eval "${{ inputs.build_script }}"
-          
+          # 这里可以插入实际构建命令，如 make、npm run build 等
           echo "Build completed successfully"
           
       - name: Upload build artifacts

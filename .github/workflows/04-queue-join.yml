@@ -439,6 +439,8 @@ jobs:
 
       - name: Join queue
         if: env.QUEUE_FULL == 'false'
+        env:
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
         run: |
           # 加入队列
           echo "Joining queue..."
@@ -457,28 +459,46 @@ jobs:
               -H "Accept: application/vnd.github.v3+json" \
               "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/jobs" | \
               jq -r '.jobs[0].steps[] | select(.name == "Get review workflow data") | .outputs.trigger_type // empty')
-            CURRENT_BUILD_TITLE="Issue Build"
+            BUILD_TITLE="Issue Build"
           else
             CURRENT_BUILD_ID="${{ github.run_id }}"
-            CURRENT_BUILD_TITLE="Workflow Dispatch Build"
+            BUILD_TITLE="Manual Build"
           fi
           CURRENT_USER="${{ github.actor }}"
           JOIN_TIME=$(date -Iseconds)
           
-          # 创建队列项
+          # 从review阶段获取的参数数据
+          REVIEW_DATA='${{ env.CURRENT_DATA }}'
+          
+          # 为当前队列项加密参数
+          echo "🔐 Encrypting parameters for current queue item..."
+          ENCRYPTED_ITEM_PARAMS=$(encrypt_params "$REVIEW_DATA")
+          if [ $? -ne 0 ]; then
+            echo "❌ Failed to encrypt parameters for queue item"
+            exit 1
+          fi
+          
+          # 创建队列项（包含自己的加密参数）
           QUEUE_ITEM=$(jq -n \
-            --arg issue_number "$CURRENT_BUILD_ID" \
-            --arg issue_title "$CURRENT_BUILD_TITLE" \
+            --arg build_id "$CURRENT_BUILD_ID" \
+            --arg build_title "$BUILD_TITLE" \
             --arg user "$CURRENT_USER" \
             --arg join_time "$JOIN_TIME" \
             --arg trigger_type "$TRIGGER_TYPE" \
+            --arg encrypted_params "$ENCRYPTED_ITEM_PARAMS" \
             '{
-              issue_number: $issue_number,
-              issue_title: $issue_title,
+              build_id: $build_id,
+              build_title: $build_title,
               user: $user,
               join_time: $join_time,
-              trigger_type: $trigger_type
+              trigger_type: $trigger_type,
+              status: "waiting",
+              encrypted_params: $encrypted_params
             }')
+          
+          # 准备加密所有参数（在加入队列时首次加密）
+          echo "🔐 Preparing to encrypt parameters for queue storage..."
+          ALL_PARAMS="$REVIEW_DATA"
           
           echo "Queue item: $QUEUE_ITEM"
           
@@ -519,8 +539,8 @@ jobs:
             
             # 检查是否已经在队列中
             EXISTING_ITEM=$(echo "$QUEUE_DATA" | \
-              jq -r --arg issue_number "$CURRENT_BUILD_ID" \
-              '.queue[] | select(.issue_number == $issue_number) | .issue_number // empty')
+              jq -r --arg build_id "$CURRENT_BUILD_ID" \
+              '.queue[] | select(.build_id == $build_id) | .build_id // empty')
             
             if [ -n "$EXISTING_ITEM" ]; then
               echo "✅ Already in queue, skipping join"
@@ -533,6 +553,25 @@ jobs:
               --arg new_version "$((CURRENT_VERSION + 1))" \
               '.queue += [$item] | .version = ($new_version | tonumber)')
             
+            # 提取当前构建的公开信息（用于顶层显示）
+            CURRENT_TAG=$(echo "$REVIEW_DATA" | jq -r '.tag // empty')
+            CURRENT_CUSTOMER=$(echo "$REVIEW_DATA" | jq -r '.customer // empty')
+            CURRENT_CUSTOMER_LINK=$(echo "$REVIEW_DATA" | jq -r '.customer_link // empty')
+            CURRENT_SLOGAN=$(echo "$REVIEW_DATA" | jq -r '.slogan // empty')
+            
+            # 添加顶层公开信息
+            UPDATED_QUEUE_DATA=$(echo "$UPDATED_QUEUE_DATA" | \
+              jq --arg tag "$CURRENT_TAG" \
+                 --arg customer "$CURRENT_CUSTOMER" \
+                 --arg customer_link "$CURRENT_CUSTOMER_LINK" \
+                 --arg slogan "$CURRENT_SLOGAN" \
+              '. + {
+                tag: $tag,
+                customer: $customer,
+                customer_link: $customer_link,
+                slogan: $slogan
+              }')
+            
             echo "Updated queue data: $UPDATED_QUEUE_DATA"
             
             # 计算队列数量
@@ -542,20 +581,18 @@ jobs:
             
             echo "Updated counts - Total: $UPDATED_TOTAL_COUNT, Issue: $UPDATED_ISSUE_COUNT, Workflow: $UPDATED_WORKFLOW_COUNT"
             
-            # 更新队列管理issue
-            UPDATED_BODY="## 构建队列管理\n\n**最后更新时间：** \$(date '+%Y-%m-%d %H:%M:%S')\n\n### 当前状态\n- **构建锁状态：** 空闲 🔓\n- **当前构建：** 无\n- **锁持有者：** 无\n- **版本：** $((CURRENT_VERSION + 1))\n\n### 构建队列\n- **当前数量：** $UPDATED_TOTAL_COUNT/5\n- **Issue触发：** $UPDATED_ISSUE_COUNT/3\n- **手动触发：** $UPDATED_WORKFLOW_COUNT/5\n\n---\n\n### 队列数据\n\`\`\`json\n$UPDATED_QUEUE_DATA\n\`\`\`"
+            # 使用加密功能更新队列issue
+            BODY_TEMPLATE="## 构建队列管理\n\n**最后更新时间：** \$(date '+%Y-%m-%d %H:%M:%S')\n\n### 当前状态\n- **构建锁状态：** 空闲 🔓\n- **当前构建：** 无\n- **锁持有者：** 无\n- **版本：** $((CURRENT_VERSION + 1))\n\n### 构建队列\n- **当前数量：** $UPDATED_TOTAL_COUNT/5\n- **Issue触发：** $UPDATED_ISSUE_COUNT/3\n- **手动触发：** $UPDATED_WORKFLOW_COUNT/5\n\n---\n\n### 队列数据\n\`\`\`json\n__QUEUE_DATA__\n\`\`\`"
             
-            # 在写入issue前，强制单行JSON
-            UPDATED_QUEUE_DATA=$(echo "$UPDATED_QUEUE_DATA" | jq -c .)
-            
-            # 尝试更新issue
-            if update_queue_issue "$QUEUE_MANAGER_ISSUE" "$UPDATED_BODY"; then
+            # 直接更新队列issue（不再使用加密功能）
+            BODY=$(echo "$BODY_TEMPLATE" | sed "s|__QUEUE_DATA__|$UPDATED_QUEUE_DATA|g")
+            if update_queue_issue "$QUEUE_MANAGER_ISSUE" "$BODY"; then
               echo "✅ Queue join successful on attempt $attempt"
               
               # 计算队列位置
               QUEUE_POSITION=$(echo "$UPDATED_QUEUE_DATA" | \
-                jq -r --arg issue_number "$CURRENT_BUILD_ID" \
-                '.queue | sort_by(.join_time) | map(.issue_number) | index($issue_number) // 0 | . + 1')
+                jq -r --arg build_id "$CURRENT_BUILD_ID" \
+                '.queue | sort_by(.join_time) | map(.build_id) | index($build_id) // 0 | . + 1')
               
               # 根据触发类型设置队列限制
               if [ "$TRIGGER_TYPE" = "issue" ]; then
