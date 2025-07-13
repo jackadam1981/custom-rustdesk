@@ -8,19 +8,19 @@ on:
         required: true
         type: string
     outputs:
-      review_passed:
-        description: "Whether review passed"
-        value: ${{ jobs.review.outputs.review_passed }}
-      review_message:
-        description: "Review message"
-        value: ${{ jobs.review.outputs.review_message }}
+      data:
+        description: "Review output data"
+        value: ${{ jobs.review.outputs.data }}
+      build_approved:
+        description: "Whether build was approved"
+        value: ${{ jobs.review.outputs.build_approved }}
 
 jobs:
   review:
     runs-on: ubuntu-latest
     outputs:
-      review_passed: ${{ steps.output.outputs.review_passed }}
-      review_message: ${{ steps.output.outputs.review_message }}
+      data: ${{ steps.output.outputs.data || steps.output_rejected.outputs.data }}
+      build_approved: ${{ steps.output.outputs.build_approved || steps.output_rejected.outputs.build_approved }}
     steps:
       - name: Setup review data
         id: setup
@@ -41,31 +41,69 @@ jobs:
           # 从trigger阶段获取数据
           INPUT='${{ env.TRIGGER_OUTPUT }}'
           
+          # 调试：输出原始数据
+          echo "Raw input data:"
+          echo "$INPUT"
+          
+          # 处理双重转义的JSON字符串
+          # 如果输入是字符串形式的JSON，需要先解析
+          if [[ "$INPUT" == \"*\" ]]; then
+            echo "Detected string-wrapped JSON, parsing..."
+            PARSED_INPUT=$(echo "$INPUT" | jq -r .)
+            echo "Parsed input:"
+            echo "$PARSED_INPUT"
+          else
+            PARSED_INPUT="$INPUT"
+          fi
+          
           # 验证JSON格式
-          echo "Validating input JSON format..."
-          echo "$INPUT" | jq . > /dev/null
-          echo "Input JSON validation passed"
+          echo "Validating JSON format..."
+          echo "$PARSED_INPUT" | jq . > /dev/null
+          echo "JSON validation passed"
           
           # 提取服务器地址
-          RENDEZVOUS_SERVER=$(echo "$INPUT" | jq -r '.rendezvous_server')
-          API_SERVER=$(echo "$INPUT" | jq -r '.api_server')
-          EMAIL=$(echo "$INPUT" | jq -r '.email')
+          RENDEZVOUS_SERVER=$(echo "$PARSED_INPUT" | jq -r '.rendezvous_server // empty')
+          API_SERVER=$(echo "$PARSED_INPUT" | jq -r '.api_server // empty')
+          EMAIL=$(echo "$PARSED_INPUT" | jq -r '.email // empty')
           
           # 设置环境变量供后续步骤使用
           echo "RENDEZVOUS_SERVER=$RENDEZVOUS_SERVER" >> $GITHUB_ENV
           echo "API_SERVER=$API_SERVER" >> $GITHUB_ENV
           echo "EMAIL=$EMAIL" >> $GITHUB_ENV
-          echo "CURRENT_DATA=$INPUT" >> $GITHUB_ENV
+          echo "CURRENT_DATA=$PARSED_INPUT" >> $GITHUB_ENV
           
-          # 验证JSON格式
-          echo "Validating JSON format..."
-          echo "$INPUT" | jq . > /dev/null
-          echo "JSON validation passed"
+          # 调试输出
+          echo "Extracted data:"
+          echo "RENDEZVOUS_SERVER: $RENDEZVOUS_SERVER"
+          echo "API_SERVER: $API_SERVER"
+          echo "EMAIL: $EMAIL"
       
       - name: Auto reject invalid server parameters
         run: |
           # 加载共享工具函数
           source .github/workflows/shared/github-utils.yml
+          
+          # 检查参数是否为空
+          if [ -z "$RENDEZVOUS_SERVER" ] || [ -z "$API_SERVER" ] || [ -z "$EMAIL" ]; then
+            echo "❌ Missing required parameters"
+            echo "RENDEZVOUS_SERVER: $RENDEZVOUS_SERVER"
+            echo "API_SERVER: $API_SERVER"
+            echo "EMAIL: $EMAIL"
+            
+            REJECT_COMMENT="## ❌ 构建被自动拒绝
+
+            **拒绝原因：** 缺少必要的服务器参数
+            - Rendezvous Server: $RENDEZVOUS_SERVER
+            - API Server: $API_SERVER
+            - Email: $EMAIL
+
+            **时间：** $(date '+%Y-%m-%d %H:%M:%S')
+            请检查参数后重新提交issue。"
+            
+            echo "BUILD_REJECTED=true" >> $GITHUB_ENV
+            echo "REJECT_REASON=Missing required parameters" >> $GITHUB_ENV
+            exit 0
+          fi
           
           # 验证服务器参数
           AUTO_REJECT_REASON=$(validate_server_parameters "$RENDEZVOUS_SERVER" "$API_SERVER" "$EMAIL")
@@ -118,7 +156,7 @@ jobs:
           API_PRIVATE=false
           
           echo "Checking Rendezvous Server: $RENDEZVOUS_SERVER"
-          if check_private_ip "$RENDEZVOUS_SERVER"; then
+          if [ -n "$RENDEZVOUS_SERVER" ] && check_private_ip "$RENDEZVOUS_SERVER"; then
             RENDEZVOUS_PRIVATE=true
             echo "Rendezvous server is private IP: $RENDEZVOUS_SERVER"
           else
@@ -126,7 +164,7 @@ jobs:
           fi
           
           echo "Checking API Server: $API_SERVER"
-          if check_private_ip "$API_SERVER"; then
+          if [ -n "$API_SERVER" ] && check_private_ip "$API_SERVER"; then
             API_PRIVATE=true
             echo "API server is private IP: $API_SERVER"
           else
@@ -290,4 +328,13 @@ jobs:
           # 验证输出的JSON格式
           echo "Validating output JSON format..."
           echo "$INPUT" | jq . > /dev/null
-          echo "Output JSON validation passed" 
+          echo "Output JSON validation passed"
+      
+      - name: Output data for rejected builds
+        if: env.BUILD_REJECTED == 'true'
+        id: output_rejected
+        run: |
+          # 为被拒绝的构建创建输出
+          echo "data={}" >> $GITHUB_OUTPUT
+          echo "build_approved=false" >> $GITHUB_OUTPUT
+          echo "Build was rejected - no data to pass forward" 

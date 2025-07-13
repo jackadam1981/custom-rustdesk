@@ -120,14 +120,14 @@ jobs:
   queue-cleanup:
     name: Queue Cleanup
     needs: [prepare-event-data, trigger, review]
-    if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.review_passed == 'true'
+    if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.build_approved == 'true'
     uses: ./.github/workflows/03-queue-cleanup.yml
     secrets: inherit
 
   queue-join:
     name: Join Queue
     needs: [prepare-event-data, trigger, review, queue-cleanup]
-    if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.review_passed == 'true'
+    if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.build_approved == 'true'
     uses: ./.github/workflows/04-queue-join.yml
     with:
       trigger_output: ${{ needs.trigger.outputs.trigger_output }}
@@ -138,7 +138,7 @@ jobs:
   queue-wait:
     name: Wait for Build Lock
     needs: [prepare-event-data, trigger, review, queue-cleanup, queue-join]
-    if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.review_passed == 'true' && needs.queue-join.outputs.join_success == 'true'
+    if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.build_approved == 'true' && needs.queue-join.outputs.join_success == 'true'
     uses: ./.github/workflows/05-queue-wait.yml
     with:
       build_id: ${{ needs.trigger.outputs.build_id }}
@@ -148,7 +148,7 @@ jobs:
   build:
     name: Execute Build
     needs: [prepare-event-data, trigger, review, queue-cleanup, queue-join, queue-wait]
-    if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.review_passed == 'true' && needs.queue-join.outputs.join_success == 'true' && needs.queue-wait.outputs.lock_acquired == 'true'
+    if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.build_approved == 'true' && needs.queue-join.outputs.join_success == 'true' && needs.queue-wait.outputs.lock_acquired == 'true'
     uses: ./.github/workflows/06-build.yml
     with:
       project_name: "Custom Rustdesk"
@@ -159,7 +159,7 @@ jobs:
   finish:
     name: Finish Process
     needs: [prepare-event-data, trigger, review, queue-cleanup, queue-join, queue-wait, build]
-    if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.review_passed == 'true' && needs.queue-join.outputs.join_success == 'true' && needs.queue-wait.outputs.lock_acquired == 'true'
+    if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.build_approved == 'true' && needs.queue-join.outputs.join_success == 'true' && needs.queue-wait.outputs.lock_acquired == 'true'
     uses: ./.github/workflows/07-finish.yml
     with:
       project_name: "Custom Rustdesk"
@@ -177,7 +177,7 @@ jobs:
     if: |
       always() && (
         needs.trigger.outputs.should_proceed == 'false' ||
-        (needs.review.outputs.review_passed == 'false' && needs.review.result != 'skipped') ||
+        (needs.review.outputs.build_approved == 'false' && needs.review.result != 'skipped') ||
         (needs.queue-join.outputs.join_success == 'false' && needs.queue-join.result != 'skipped') ||
         (needs.queue-wait.outputs.lock_acquired == 'false' && needs.queue-wait.result != 'skipped') ||
         needs.build.result == 'failure' ||
@@ -193,8 +193,8 @@ jobs:
             echo "❌ 触发阶段失败：参数提取或验证失败"
           fi
           
-          if [ "${{ needs.review.outputs.review_passed }}" = "false" ]; then
-            echo "❌ 审查阶段失败：${{ needs.review.outputs.review_message }}"
+          if [ "${{ needs.review.outputs.build_approved }}" = "false" ]; then
+            echo "❌ 审查阶段失败：构建未获得批准"
           fi
           
           if [ "${{ needs.queue-join.outputs.join_success }}" = "false" ]; then
