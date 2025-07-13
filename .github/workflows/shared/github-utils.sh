@@ -1,3 +1,4 @@
+#!/bin/bash
 # GitHub API 工具函数
 # 这个文件包含通用的GitHub API调用和队列操作函数
 

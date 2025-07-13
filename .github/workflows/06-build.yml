@@ -38,7 +38,7 @@ jobs:
       - name: Get and decrypt build parameters
         run: |
           # 加载共享工具函数
-          source .github/workflows/shared/github-utils.yml
+          source .github/workflows/shared/github-utils.sh
           
           # 获取队列数据
           QUEUE_MANAGER_ISSUE="1"

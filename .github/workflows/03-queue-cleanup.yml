@@ -9,7 +9,7 @@ jobs:
     steps:
       - name: Check and cleanup queue
         run: |
-          source .github/workflows/shared/github-utils.yml
+          source .github/workflows/shared/github-utils.sh
           
           echo "Starting automatic queue cleanup..."
           

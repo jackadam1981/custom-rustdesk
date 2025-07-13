@@ -74,7 +74,7 @@ jobs:
           echo "Starting automatic queue cleanup..."
           
           # 加载共享工具函数
-          source .github/workflows/shared/github-utils.yml
+          source .github/workflows/shared/github-utils.sh
           
           # 重试机制参数
           MAX_RETRIES=5
@@ -234,7 +234,7 @@ jobs:
         id: join
         run: |
           # 加载共享工具函数
-          source .github/workflows/shared/github-utils.yml
+          source .github/workflows/shared/github-utils.sh
           
           echo "Joining build queue..."
           

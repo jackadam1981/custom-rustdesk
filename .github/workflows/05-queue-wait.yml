@@ -46,7 +46,7 @@ jobs:
           echo "Waiting in queue and for build lock..."
           
           # 加载共享工具函数
-          source .github/workflows/shared/github-utils.yml
+          source .github/workflows/shared/github-utils.sh
           
           START_TIME=$(date +%s)
           TIMEOUT=21600  # 6小时超时
