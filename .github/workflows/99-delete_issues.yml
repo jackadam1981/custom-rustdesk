@@ -1,4 +1,4 @@
-name: Delete Issues
+name: 99 - Delete Issues
 
 on:
   workflow_dispatch:

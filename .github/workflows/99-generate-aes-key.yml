@@ -1,4 +1,4 @@
-name: Generate AES Key
+name: 99 - Generate AES Key
 
 on:
   workflow_dispatch:

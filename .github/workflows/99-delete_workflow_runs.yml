@@ -1,4 +1,4 @@
-name: Delete Workflow Runs
+name: 99 - Delete Workflow Runs
 
 on:
   workflow_dispatch:
