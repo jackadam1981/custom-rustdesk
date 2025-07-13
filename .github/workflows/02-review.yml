@@ -82,6 +82,9 @@ jobs:
           echo "EMAIL: $EMAIL"
       
       - name: Auto reject invalid server parameters
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           # 加载共享工具函数
           source .github/workflows/shared/github-utils.sh
@@ -124,9 +127,9 @@ jobs:
             
             # 获取原始issue编号
             ORIGINAL_ISSUE_NUMBER=$(curl -s \
-              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Authorization: token $GITHUB_TOKEN" \
               -H "Accept: application/vnd.github.v3+json" \
-              "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/jobs" | \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/${{ github.event.workflow_run.id }}/jobs" | \
               jq -r '.jobs[0].steps[] | select(.name == "Setup framework") | .outputs.build_id // empty')
             
             if [ -n "$ORIGINAL_ISSUE_NUMBER" ]; then
@@ -141,6 +144,9 @@ jobs:
 
       - name: Determine review requirement
         if: env.BUILD_REJECTED != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           # 默认需要审核
           NEED_REVIEW=true
@@ -192,14 +198,17 @@ jobs:
       
       - name: Handle review process
         if: env.NEED_REVIEW == 'true' && env.BUILD_REJECTED != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           echo "Review required. Starting review process..."
           
           # 获取原始issue编号
           ORIGINAL_ISSUE_NUMBER=$(curl -s \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Authorization: token $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/jobs" | \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/${{ github.event.workflow_run.id }}/jobs" | \
             jq -r '.jobs[0].steps[] | select(.name == "Setup framework") | .outputs.build_id // empty')
           
           # 在issue中添加审核状态
@@ -232,9 +241,9 @@ jobs:
             
             # 获取issue的最新评论
             COMMENTS=$(curl -s \
-              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Authorization: token $GITHUB_TOKEN" \
               -H "Accept: application/vnd.github.v3+json" \
-              "https://api.github.com/repos/${{ github.repository }}/issues/$ORIGINAL_ISSUE_NUMBER/comments")
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/$ORIGINAL_ISSUE_NUMBER/comments")
             
             # 检查是否有管理员回复
             # 获取仓库所有者和管理员列表

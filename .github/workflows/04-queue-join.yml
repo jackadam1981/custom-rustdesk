@@ -69,6 +69,9 @@ jobs:
           echo "CURRENT_DATA=$INPUT" >> $GITHUB_ENV
 
       - name: Auto cleanup queue
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           # 自动清理队列，处理异常锁和卡住的状态
           echo "Starting automatic queue cleanup..."
@@ -149,9 +152,9 @@ jobs:
               INVALID_ISSUES=()
               for issue_number in $(echo "$QUEUE" | jq -r '.[].issue_number'); do
                 ISSUE_RESPONSE=$(curl -s \
-                  -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                  -H "Authorization: token $GITHUB_TOKEN" \
                   -H "Accept: application/vnd.github.v3+json" \
-                  "https://api.github.com/repos/${{ github.repository }}/issues/$issue_number")
+                  "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/$issue_number")
                 
                 if echo "$ISSUE_RESPONSE" | jq -e '.message' | grep -q "Not Found"; then
                   INVALID_ISSUES+=("$issue_number")
@@ -172,9 +175,9 @@ jobs:
               for run_id in $(echo "$QUEUE" | jq -r '.[] | select(.trigger_type == "workflow_dispatch") | .issue_number'); do
                 # 检查workflow run是否存在且未完成
                 RUN_RESPONSE=$(curl -s \
-                  -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                  -H "Authorization: token $GITHUB_TOKEN" \
                   -H "Accept: application/vnd.github.v3+json" \
-                  "https://api.github.com/repos/${{ github.repository }}/actions/runs/$run_id")
+                  "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$run_id")
                 
                 if echo "$RUN_RESPONSE" | jq -e '.message' | grep -q "Not Found"; then
                   EXPIRED_RUNS+=("$run_id")
@@ -232,6 +235,9 @@ jobs:
 
       - name: Join queue
         id: join
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           # 加载共享工具函数
           source .github/workflows/shared/github-utils.sh

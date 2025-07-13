@@ -182,6 +182,9 @@ jobs:
       
       - name: Overwrite issue content
         if: inputs.event_name == 'issues'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           # 创建清理后的issue内容，保留原始标题和标签
           CLEANED_BODY="## 构建请求已处理
@@ -206,10 +209,10 @@ jobs:
           
           # 使用GitHub API更新issue
           curl -X PATCH \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Authorization: token $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
             -H "Content-Type: application/json" \
-            https://api.github.com/repos/${{ github.repository }}/issues/$ISSUE_NUMBER \
+            https://api.github.com/repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER \
             -d "$JSON_PAYLOAD"
       
       - name: Verify dependencies

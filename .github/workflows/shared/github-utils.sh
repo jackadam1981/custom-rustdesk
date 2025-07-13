@@ -118,9 +118,9 @@ get_queue_manager_content() {
   local queue_issue_number="${1:-1}"
   
   local content=$(curl -s \
-    -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+    -H "Authorization: token $GITHUB_TOKEN" \
     -H "Accept: application/vnd.github.v3+json" \
-    "https://api.github.com/repos/${{ github.repository }}/issues/$queue_issue_number")
+    "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/$queue_issue_number")
   
   # 检查issue是否存在
   if echo "$content" | jq -e '.message' | grep -q "Not Found"; then
@@ -137,10 +137,10 @@ update_queue_issue() {
   local body="$2"
   
   local response=$(curl -s -X PATCH \
-    -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+    -H "Authorization: token $GITHUB_TOKEN" \
     -H "Accept: application/vnd.github.v3+json" \
     -H "Content-Type: application/json" \
-    "https://api.github.com/repos/${{ github.repository }}/issues/$queue_issue_number" \
+    "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/$queue_issue_number" \
     -d "$(jq -n --arg body "$body" '{"body": $body}')")
   
   # 验证更新是否成功
@@ -159,9 +159,9 @@ add_issue_comment() {
   local comment="$2"
   
   curl -X POST \
-    -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+    -H "Authorization: token $GITHUB_TOKEN" \
     -H "Accept: application/vnd.github.v3+json" \
-    "https://api.github.com/repos/${{ github.repository }}/issues/$issue_number/comments" \
+    "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/$issue_number/comments" \
     -d "$(jq -n --arg body "$comment" '{"body": $body}')"
 }
 
