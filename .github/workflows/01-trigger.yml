@@ -1,13 +1,29 @@
 name: 01 - Trigger and Parameter Extraction
 
 on:
-  issues:
-    types: [opened]
-
-# 添加权限配置
-permissions:
-  issues: write
-  contents: read
+  workflow_call:
+    inputs:
+      event_name:
+        description: "Event name (issues or workflow_dispatch)"
+        required: true
+        type: string
+      event_data:
+        description: "Event data as JSON string"
+        required: true
+        type: string
+    outputs:
+      trigger_output:
+        description: "Trigger workflow output data"
+        value: ${{ jobs.trigger.outputs.trigger_output }}
+      trigger_type:
+        description: "Trigger type (issue or workflow_dispatch)"
+        value: ${{ jobs.trigger.outputs.trigger_type }}
+      build_id:
+        description: "Build ID"
+        value: ${{ jobs.trigger.outputs.build_id }}
+      should_proceed:
+        description: "Whether to proceed with the build"
+        value: ${{ jobs.trigger.outputs.should_proceed }}
 
 jobs:
   trigger:
@@ -16,33 +32,40 @@ jobs:
       trigger_output: ${{ toJson(steps.setup.outputs.data) }}
       trigger_type: ${{ steps.setup.outputs.trigger_type }}
       build_id: ${{ steps.setup.outputs.build_id }}
+      should_proceed: ${{ steps.setup.outputs.should_proceed }}
     steps:
       - name: Setup framework
         id: setup
         run: |
           echo "Preparing environment..."
           
+          # 解析事件数据
+          EVENT_NAME="${{ inputs.event_name }}"
+          EVENT_DATA='${{ inputs.event_data }}'
+          
           # 判断触发方式并提取参数
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             # 手动触发：使用workflow_dispatch输入参数
             echo "Manual trigger detected"
             TRIGGER_TYPE="workflow_dispatch"
             BUILD_ID="${{ github.run_id }}"
-            TAG="${{ github.event.inputs.tag }}"
-            EMAIL="${{ github.event.inputs.email }}"
-            CUSTOMER="${{ github.event.inputs.customer }}"
-            CUSTOMER_LINK="${{ github.event.inputs.customer_link }}"
-            SUPER_PASSWORD="${{ github.event.inputs.super_password }}"
-            SLOGAN="${{ github.event.inputs.slogan }}"
-            RENDEZVOUS_SERVER="${{ github.event.inputs.rendezvous_server }}"
-            RS_PUB_KEY="${{ github.event.inputs.rs_pub_key }}"
-            API_SERVER="${{ github.event.inputs.api_server }}"
+            
+            # 从事件数据中提取参数
+            TAG=$(echo "$EVENT_DATA" | jq -r '.inputs.tag // empty')
+            EMAIL=$(echo "$EVENT_DATA" | jq -r '.inputs.email // empty')
+            CUSTOMER=$(echo "$EVENT_DATA" | jq -r '.inputs.customer // empty')
+            CUSTOMER_LINK=$(echo "$EVENT_DATA" | jq -r '.inputs.customer_link // empty')
+            SUPER_PASSWORD=$(echo "$EVENT_DATA" | jq -r '.inputs.super_password // empty')
+            SLOGAN=$(echo "$EVENT_DATA" | jq -r '.inputs.slogan // empty')
+            RENDEZVOUS_SERVER=$(echo "$EVENT_DATA" | jq -r '.inputs.rendezvous_server // empty')
+            RS_PUB_KEY=$(echo "$EVENT_DATA" | jq -r '.inputs.rs_pub_key // empty')
+            API_SERVER=$(echo "$EVENT_DATA" | jq -r '.inputs.api_server // empty')
           else
             # Issue触发：从issue内容中提取参数
             echo "Issue trigger detected"
             TRIGGER_TYPE="issue"
-            BUILD_ID="${{ github.event.issue.number }}"
-            ISSUE_BODY="${{ github.event.issue.body }}"
+            BUILD_ID=$(echo "$EVENT_DATA" | jq -r '.issue.number // empty')
+            ISSUE_BODY=$(echo "$EVENT_DATA" | jq -r '.issue.body // empty')
             
             # 保存原始issue内容供后续使用
             echo "ORIGINAL_ISSUE_BODY=$ISSUE_BODY" >> $GITHUB_ENV
@@ -155,9 +178,10 @@ jobs:
           echo "data=$DATA" >> $GITHUB_OUTPUT
           echo "trigger_type=$TRIGGER_TYPE" >> $GITHUB_OUTPUT
           echo "build_id=$BUILD_ID" >> $GITHUB_OUTPUT
+          echo "should_proceed=true" >> $GITHUB_OUTPUT
       
       - name: Overwrite issue content
-        if: github.event_name == 'issues'
+        if: inputs.event_name == 'issues'
         run: |
           # 创建清理后的issue内容，保留原始标题和标签
           CLEANED_BODY="## 构建请求已处理
@@ -177,12 +201,15 @@ jobs:
           # 使用jq正确转义JSON
           JSON_PAYLOAD=$(jq -n --arg body "$CLEANED_BODY" '{"body": $body}')
           
+          # 获取issue编号
+          ISSUE_NUMBER=$(echo '${{ inputs.event_data }}' | jq -r '.issue.number // empty')
+          
           # 使用GitHub API更新issue
           curl -X PATCH \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
             -H "Content-Type: application/json" \
-            https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }} \
+            https://api.github.com/repos/${{ github.repository }}/issues/$ISSUE_NUMBER \
             -d "$JSON_PAYLOAD"
       
       - name: Verify dependencies

@@ -1,13 +1,7 @@
 name: 03 - Queue Cleanup
 
 on:
-  workflow_run:
-    workflows: ["02 - Review and Validation"]
-    types: [completed]
-
-permissions:
-  issues: write
-  contents: read
+  workflow_call:
 
 jobs:
   queue_cleanup:

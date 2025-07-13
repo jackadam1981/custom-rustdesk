@@ -1,44 +1,46 @@
 name: 05 - Queue Wait
 
 on:
-  workflow_run:
-    workflows: ["04 - Queue Join"]
-    types: [completed]
-
-# 添加权限配置
-permissions:
-  issues: write
-  contents: read
+  workflow_call:
+    inputs:
+      build_id:
+        description: "Build ID"
+        required: true
+        type: string
+      queue_position:
+        description: "Position in queue"
+        required: true
+        type: string
+    outputs:
+      lock_acquired:
+        description: "Whether lock was acquired"
+        value: ${{ jobs.queue_wait.outputs.lock_acquired }}
 
 jobs:
   queue_wait:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    outputs:
+      lock_acquired: ${{ steps.wait.outputs.lock_acquired }}
     steps:
-      - name: Get queue join workflow data
-        id: get_data
+      - name: Setup data
+        id: setup
         run: |
-          # 获取加入队列工作流的数据
-          QUEUE_JOIN_RUN_ID="${{ github.event.workflow_run.id }}"
+          # 使用输入参数
+          BUILD_ID='${{ inputs.build_id }}'
+          QUEUE_POSITION='${{ inputs.queue_position }}'
           
-          # 获取加入队列工作流的输出
-          QUEUE_POSITION=$(curl -s \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/runs/$QUEUE_JOIN_RUN_ID/jobs" | \
-            jq -r '.jobs[0].steps[] | select(.name == "Join queue") | .outputs.queue_position // empty')
-          
-          if [ -z "$QUEUE_POSITION" ]; then
-            echo "❌ Failed to get queue position"
+          if [ -z "$BUILD_ID" ]; then
+            echo "❌ No build ID provided"
             exit 1
           fi
           
+          echo "BUILD_ID=$BUILD_ID" >> $GITHUB_ENV
           echo "QUEUE_POSITION=$QUEUE_POSITION" >> $GITHUB_ENV
-          echo "queue_position=$QUEUE_POSITION" >> $GITHUB_OUTPUT
       
       - name: Wait in queue
+        id: wait
         env:
-          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+          ENCRYPTION_KEY: ${{ vars.ENCRYPTION_KEY }}
         run: |
           # 等待轮到自己的位置并获取构建锁
           echo "Waiting in queue and for build lock..."
@@ -50,12 +52,13 @@ jobs:
           TIMEOUT=21600  # 6小时超时
           
           # 获取当前构建标识符
-          CURRENT_BUILD_ID="${{ github.run_id }}"
+          CURRENT_BUILD_ID="${{ env.BUILD_ID }}"
           echo "Current build ID: $CURRENT_BUILD_ID"
           
           # 如果刚刚加入队列且位置是1，直接开始构建
-          if [ "$QUEUE_POSITION" = "1" ]; then
+          if [ "${{ env.QUEUE_POSITION }}" = "1" ]; then
             echo "✅ Build is at front of queue, proceeding to build..."
+            echo "lock_acquired=true" >> $GITHUB_OUTPUT
             exit 0
           fi
           
@@ -67,20 +70,22 @@ jobs:
           while [ $(($(date +%s) - START_TIME)) -lt $TIMEOUT ]; do
             echo "Checking queue position and lock status... ($(($(date +%s) - START_TIME))s elapsed)"
             
-            # 获取队列数据（支持解密）
+            # 获取队列数据
             QUEUE_MANAGER_ISSUE="1"
             QUEUE_MANAGER_CONTENT=$(get_queue_manager_content "$QUEUE_MANAGER_ISSUE")
-            QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT" "true")
+            QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
             
             # 如果提取失败，直接退出
             if [ -z "$QUEUE_DATA" ]; then
               echo "❌ Failed to extract queue JSON, aborting."
+              echo "lock_acquired=false" >> $GITHUB_OUTPUT
               exit 1
             fi
             
             # 验证JSON格式
             if ! echo "$QUEUE_DATA" | jq . > /dev/null 2>&1; then
               echo "❌ Invalid JSON format in queue data, aborting."
+              echo "lock_acquired=false" >> $GITHUB_OUTPUT
               exit 1
             fi
             
@@ -88,12 +93,13 @@ jobs:
             QUEUE_DATA=$(echo "$QUEUE_DATA" | jq -c .)
             
             # 检查当前构建是否在队列中
-            ISSUE_IN_QUEUE=$(echo "$QUEUE_DATA" | \
+            BUILD_IN_QUEUE=$(echo "$QUEUE_DATA" | \
               jq -r --arg build_id "$CURRENT_BUILD_ID" \
               '.queue | map(.build_id) | contains([$build_id])')
             
-            if [ "$ISSUE_IN_QUEUE" != "true" ]; then
+            if [ "$BUILD_IN_QUEUE" != "true" ]; then
               echo "❌ Build not found in queue, exiting..."
+              echo "lock_acquired=false" >> $GITHUB_OUTPUT
               exit 1
             fi
             
@@ -109,30 +115,24 @@ jobs:
               if [ "$LOCK_RUN_ID" = "null" ]; then
                 echo "✅ At front of queue and no lock, attempting to acquire lock..."
                 
-                # 获取当前队列项的加密参数
-                CURRENT_ITEM_ENCRYPTED=$(echo "$QUEUE_DATA" | \
+                # 获取当前队列项的数据
+                CURRENT_ITEM=$(echo "$QUEUE_DATA" | \
                   jq -r --arg build_id "$CURRENT_BUILD_ID" \
-                  '.queue[] | select(.build_id == $build_id) | .encrypted_params // empty')
+                  '.queue[] | select(.build_id == $build_id)')
                 
-                if [ -z "$CURRENT_ITEM_ENCRYPTED" ]; then
-                  echo "❌ No encrypted parameters found for current build"
-                  exit 1
-                fi
-                
-                # 解密当前队列项的参数
-                CURRENT_ITEM_PARAMS=$(decrypt_params "$CURRENT_ITEM_ENCRYPTED")
-                if [ $? -ne 0 ]; then
-                  echo "❌ Failed to decrypt parameters for current build"
+                if [ -z "$CURRENT_ITEM" ]; then
+                  echo "❌ No item found for current build"
+                  echo "lock_acquired=false" >> $GITHUB_OUTPUT
                   exit 1
                 fi
                 
                 # 提取当前构建的公开信息
-                CURRENT_TAG=$(echo "$CURRENT_ITEM_PARAMS" | jq -r '.tag // empty')
-                CURRENT_CUSTOMER=$(echo "$CURRENT_ITEM_PARAMS" | jq -r '.customer // empty')
-                CURRENT_CUSTOMER_LINK=$(echo "$CURRENT_ITEM_PARAMS" | jq -r '.customer_link // empty')
-                CURRENT_SLOGAN=$(echo "$CURRENT_ITEM_PARAMS" | jq -r '.slogan // empty')
+                CURRENT_TAG=$(echo "$CURRENT_ITEM" | jq -r '.tag // empty')
+                CURRENT_CUSTOMER=$(echo "$CURRENT_ITEM" | jq -r '.customer // empty')
+                CURRENT_CUSTOMER_LINK=$(echo "$CURRENT_ITEM" | jq -r '.customer_link // empty')
+                CURRENT_SLOGAN=$(echo "$CURRENT_ITEM" | jq -r '.slogan // empty')
                 
-                echo "🔐 Decrypted parameters for current build:"
+                echo "🔐 Parameters for current build:"
                 echo "TAG: $CURRENT_TAG"
                 echo "CUSTOMER: $CURRENT_CUSTOMER"
                 echo "SLOGAN: $CURRENT_SLOGAN"
@@ -146,12 +146,12 @@ jobs:
                   
                   # 尝试获取锁并更新顶层信息
                   UPDATED_QUEUE_DATA=$(echo "$QUEUE_DATA" | \
-                    jq --arg run_id "${{ github.run_id }}" \
-                       --arg new_version "$((CURRENT_VERSION + 1))" \
-                       --arg tag "$CURRENT_TAG" \
-                       --arg customer "$CURRENT_CUSTOMER" \
-                       --arg customer_link "$CURRENT_CUSTOMER_LINK" \
-                       --arg slogan "$CURRENT_SLOGAN" \
+                    jq --arg run_id "$CURRENT_BUILD_ID" \
+                    --arg new_version "$((CURRENT_VERSION + 1))" \
+                    --arg tag "$CURRENT_TAG" \
+                    --arg customer "$CURRENT_CUSTOMER" \
+                    --arg customer_link "$CURRENT_CUSTOMER_LINK" \
+                    --arg slogan "$CURRENT_SLOGAN" \
                     '.run_id = $run_id | .version = ($new_version | tonumber) | .tag = $tag | .customer = $customer | .customer_link = $customer_link | .slogan = $slogan')
                   
                   # 计算队列数量
@@ -160,28 +160,31 @@ jobs:
                   UPDATED_WORKFLOW_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "workflow_dispatch")) | length // 0')
                   
                   # 更新队列管理issue
-                  UPDATED_BODY="## 构建队列管理\n\n**最后更新时间：** \$(date '+%Y-%m-%d %H:%M:%S')\n\n### 当前状态\n- **构建锁状态：** 占用 🔒 (run_id: ${{ github.run_id }})\n- **当前构建：** 队列首位\n- **锁持有者：** 运行ID: ${{ github.run_id }}\n- **版本：** $((CURRENT_VERSION + 1))\n\n### 构建队列\n- **当前数量：** $UPDATED_TOTAL_COUNT/5\n- **Issue触发：** $UPDATED_ISSUE_COUNT/3\n- **手动触发：** $UPDATED_WORKFLOW_COUNT/5\n\n---\n\n### 队列数据\n\`\`\`json\n$UPDATED_QUEUE_DATA\n\`\`\`"
+                  UPDATED_BODY="## 构建队列管理\n\n**最后更新时间：** \$(date '+%Y-%m-%d %H:%M:%S')\n\n### 当前状态\n- **构建锁状态：** 占用 🔒 (build_id: $CURRENT_BUILD_ID)\n- **当前构建：** 队列首位\n- **锁持有者：** 构建ID: $CURRENT_BUILD_ID\n- **版本：** $((CURRENT_VERSION + 1))\n\n### 构建队列\n- **当前数量：** $UPDATED_TOTAL_COUNT/5\n- **Issue触发：** $UPDATED_ISSUE_COUNT/3\n- **手动触发：** $UPDATED_WORKFLOW_COUNT/5\n\n---\n\n### 队列数据\n\`\`\`json\n$UPDATED_QUEUE_DATA\n\`\`\`"
                   
                   if update_queue_issue "$QUEUE_MANAGER_ISSUE" "$UPDATED_BODY"; then
                     echo "✅ Lock acquired successfully on attempt $lock_attempt"
-                    break 2  # 跳出两层循环
+                    echo "lock_acquired=true" >> $GITHUB_OUTPUT
+                    exit 0
                   else
                     echo "❌ Lock acquisition failed on attempt $lock_attempt"
                     if [ "$lock_attempt" -lt "$MAX_RETRIES" ]; then
                       echo "Retrying lock acquisition in $RETRY_DELAY seconds..."
                       sleep $RETRY_DELAY
                       
-                      # 重新获取队列数据（支持解密）
+                      # 重新获取队列数据
                       QUEUE_MANAGER_CONTENT=$(get_queue_manager_content "$QUEUE_MANAGER_ISSUE")
-                      QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT" "true")
+                      QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
                       if [ -z "$QUEUE_DATA" ]; then
                         echo "❌ Failed to extract queue JSON during retry, aborting."
+                        echo "lock_acquired=false" >> $GITHUB_OUTPUT
                         exit 1
                       fi
                       
                       # 验证JSON格式
                       if ! echo "$QUEUE_DATA" | jq . > /dev/null 2>&1; then
                         echo "❌ Invalid JSON format in queue data during retry, aborting."
+                        echo "lock_acquired=false" >> $GITHUB_OUTPUT
                         exit 1
                       fi
                       
@@ -189,27 +192,25 @@ jobs:
                       QUEUE_DATA=$(echo "$QUEUE_DATA" | jq -c .)
                     else
                       echo "Max lock retries reached, continuing without lock..."
-                      break 2
+                      echo "lock_acquired=false" >> $GITHUB_OUTPUT
+                      exit 1
                     fi
                   fi
                 done
-              elif [ "$LOCK_RUN_ID" = "${{ github.run_id }}" ]; then
+              elif [ "$LOCK_RUN_ID" = "$CURRENT_BUILD_ID" ]; then
                 echo "✅ Already holding lock, proceeding to build..."
-                break
+                echo "lock_acquired=true" >> $GITHUB_OUTPUT
+                exit 0
               else
-                echo "Lock held by run_id: $LOCK_RUN_ID, waiting..."
+                echo "Lock held by build_id: $LOCK_RUN_ID, waiting..."
                 sleep 30
-                continue
               fi
             else
               echo "Not at front of queue (position: $CURRENT_POSITION), waiting..."
               sleep 30
-              continue
             fi
           done
           
-          # 检查是否超时
-          if [ $(($(date +%s) - START_TIME)) -ge $TIMEOUT ]; then
-            echo "Queue timeout after 6 hours"
-            exit 1
-          fi 
+          echo "❌ Timeout reached while waiting for lock"
+          echo "lock_acquired=false" >> $GITHUB_OUTPUT
+          exit 1 

@@ -2,11 +2,8 @@
 name: 00 - Build Custom Rustdesk Client
 
 on:
-  # 处理issue触发
   issues:
     types: [opened, edited, reopened]
-    
-  # 处理手动触发
   workflow_dispatch:
     inputs:
       tag:
@@ -55,132 +52,128 @@ on:
         default: "https://api.example.com"
         type: string
 
+# 添加权限配置，供可重用工作流继承
+permissions:
+  issues: write
+  contents: read
+
 jobs:
-  # 第一阶段：触发和参数提取
+  prepare-event-data:
+    name: Prepare Event Data
+    runs-on: ubuntu-latest
+    outputs:
+      event_name: ${{ steps.prepare.outputs.event_name }}
+      event_data: ${{ steps.prepare.outputs.event_data }}
+    steps:
+      - name: Prepare event data for reusable workflows
+        id: prepare
+        run: |
+          # 准备事件数据供可重用工作流使用
+          EVENT_NAME="${{ github.event_name }}"
+          
+          # 根据事件类型准备不同的数据
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            # 手动触发事件
+            EVENT_DATA=$(jq -c -n \
+              --arg tag "${{ github.event.inputs.tag }}" \
+              --arg email "${{ github.event.inputs.email }}" \
+              --arg customer "${{ github.event.inputs.customer }}" \
+              --arg customer_link "${{ github.event.inputs.customer_link }}" \
+              --arg super_password "${{ github.event.inputs.super_password }}" \
+              --arg slogan "${{ github.event.inputs.slogan }}" \
+              --arg rendezvous_server "${{ github.event.inputs.rendezvous_server }}" \
+              --arg rs_pub_key "${{ github.event.inputs.rs_pub_key }}" \
+              --arg api_server "${{ github.event.inputs.api_server }}" \
+              '{"inputs": {"tag": $tag, "email": $email, "customer": $customer, "customer_link": $customer_link, "super_password": $super_password, "slogan": $slogan, "rendezvous_server": $rendezvous_server, "rs_pub_key": $rs_pub_key, "api_server": $api_server}}')
+          else
+            # Issue事件
+            EVENT_DATA=$(jq -c -n \
+              --arg number "${{ github.event.issue.number }}" \
+              --arg body "${{ github.event.issue.body }}" \
+              '{"issue": {"number": $number, "body": $body}}')
+          fi
+          
+          echo "event_name=$EVENT_NAME" >> $GITHUB_OUTPUT
+          echo "event_data=$EVENT_DATA" >> $GITHUB_OUTPUT
+          
+          echo "Event name: $EVENT_NAME"
+          echo "Event data prepared for reusable workflows"
+
   trigger:
     name: Trigger and Extract Parameters
-    runs-on: ubuntu-latest
-    outputs:
-      project_name: ${{ steps.extract.outputs.project_name }}
-      project_url: ${{ steps.extract.outputs.project_url }}
-      rendezvous_server: ${{ steps.extract.outputs.rendezvous_server }}
-      api_server: ${{ steps.extract.outputs.api_server }}
-      email: ${{ steps.extract.outputs.email }}
-      build_script: ${{ steps.extract.outputs.build_script }}
-      trigger_type: ${{ steps.extract.outputs.trigger_type }}
-      issue_number: ${{ steps.extract.outputs.issue_number }}
-      should_proceed: ${{ steps.extract.outputs.should_proceed }}
-    steps:
-      - name: Call trigger workflow
-        uses: ./.github/workflows/01-trigger
-        id: trigger
-        
-      - name: Extract parameters
-        id: extract
-        run: |
-          # 从trigger工作流的输出中提取参数
-          echo "project_name=${{ steps.trigger.outputs.project_name }}" >> $GITHUB_OUTPUT
-          echo "project_url=${{ steps.trigger.outputs.project_url }}" >> $GITHUB_OUTPUT
-          echo "rendezvous_server=${{ steps.trigger.outputs.rendezvous_server }}" >> $GITHUB_OUTPUT
-          echo "api_server=${{ steps.trigger.outputs.api_server }}" >> $GITHUB_OUTPUT
-          echo "email=${{ steps.trigger.outputs.email }}" >> $GITHUB_OUTPUT
-          echo "build_script=${{ steps.trigger.outputs.build_script }}" >> $GITHUB_OUTPUT
-          echo "trigger_type=${{ steps.trigger.outputs.trigger_type }}" >> $GITHUB_OUTPUT
-          echo "issue_number=${{ steps.trigger.outputs.issue_number }}" >> $GITHUB_OUTPUT
-          echo "should_proceed=${{ steps.trigger.outputs.should_proceed }}" >> $GITHUB_OUTPUT
+    needs: prepare-event-data
+    uses: ./.github/workflows/01-trigger.yml
+    with:
+      event_name: ${{ needs.prepare-event-data.outputs.event_name }}
+      event_data: ${{ needs.prepare-event-data.outputs.event_data }}
+    secrets: inherit
 
-  # 第二阶段：审查和验证
   review:
     name: Review and Validate
-    runs-on: ubuntu-latest
-    needs: trigger
+    needs: [prepare-event-data, trigger]
     if: needs.trigger.outputs.should_proceed == 'true'
-    outputs:
-      review_passed: ${{ steps.review.outputs.review_passed }}
-      review_message: ${{ steps.review.outputs.review_message }}
-    steps:
-      - name: Call review workflow
-        uses: ./.github/workflows/02-review
-        id: review
+    uses: ./.github/workflows/02-review.yml
+    with:
+      trigger_output: ${{ needs.trigger.outputs.trigger_output }}
+    secrets: inherit
 
-  # 第三阶段：队列清理（定期执行）
   queue-cleanup:
     name: Queue Cleanup
-    runs-on: ubuntu-latest
-    needs: [trigger, review]
+    needs: [prepare-event-data, trigger, review]
     if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.review_passed == 'true'
-    steps:
-      - name: Call queue cleanup workflow
-        uses: ./.github/workflows/03-queue-cleanup
+    uses: ./.github/workflows/03-queue-cleanup.yml
+    secrets: inherit
 
-  # 第四阶段：加入队列
   queue-join:
     name: Join Queue
-    runs-on: ubuntu-latest
-    needs: [trigger, review, queue-cleanup]
+    needs: [prepare-event-data, trigger, review, queue-cleanup]
     if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.review_passed == 'true'
-    outputs:
-      join_success: ${{ steps.join.outputs.join_success }}
-      queue_position: ${{ steps.join.outputs.queue_position }}
-    steps:
-      - name: Call queue join workflow
-        uses: ./.github/workflows/04-queue-join
-        id: join
+    uses: ./.github/workflows/04-queue-join.yml
+    with:
+      trigger_output: ${{ needs.trigger.outputs.trigger_output }}
+      trigger_type: ${{ needs.trigger.outputs.trigger_type }}
+      build_id: ${{ needs.trigger.outputs.build_id }}
+    secrets: inherit
 
-  # 第五阶段：等待构建锁
   queue-wait:
     name: Wait for Build Lock
-    runs-on: ubuntu-latest
-    needs: [trigger, review, queue-cleanup, queue-join]
+    needs: [prepare-event-data, trigger, review, queue-cleanup, queue-join]
     if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.review_passed == 'true' && needs.queue-join.outputs.join_success == 'true'
-    outputs:
-      lock_acquired: ${{ steps.wait.outputs.lock_acquired }}
-    steps:
-      - name: Call queue wait workflow
-        uses: ./.github/workflows/05-queue-wait
-        id: wait
+    uses: ./.github/workflows/05-queue-wait.yml
+    with:
+      build_id: ${{ needs.trigger.outputs.build_id }}
+      queue_position: ${{ needs.queue-join.outputs.queue_position }}
+    secrets: inherit
 
-  # 第六阶段：执行构建
   build:
     name: Execute Build
-    runs-on: ubuntu-latest
-    needs: [trigger, review, queue-cleanup, queue-join, queue-wait]
+    needs: [prepare-event-data, trigger, review, queue-cleanup, queue-join, queue-wait]
     if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.review_passed == 'true' && needs.queue-join.outputs.join_success == 'true' && needs.queue-wait.outputs.lock_acquired == 'true'
-    outputs:
-      build_status: ${{ steps.build.outputs.build_status }}
-      build_artifacts: ${{ steps.build.outputs.build_artifacts }}
-      error_message: ${{ steps.build.outputs.error_message }}
-    steps:
-      - name: Call build workflow
-        uses: ./.github/workflows/06-build
-        with:
-          project_name: ${{ needs.trigger.outputs.project_name }}
-          project_url: ${{ needs.trigger.outputs.project_url }}
-          build_script: ${{ needs.trigger.outputs.build_script }}
-          build_timeout: 60
-        id: build
+    uses: ./.github/workflows/06-build.yml
+    with:
+      project_name: "Custom Rustdesk"
+      project_url: "https://github.com/rustdesk/rustdesk"
+      build_timeout: 60
+    secrets: inherit
 
-  # 第七阶段：完成处理
   finish:
     name: Finish Process
-    runs-on: ubuntu-latest
-    needs: [trigger, review, queue-cleanup, queue-join, queue-wait, build]
+    needs: [prepare-event-data, trigger, review, queue-cleanup, queue-join, queue-wait, build]
     if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.review_passed == 'true' && needs.queue-join.outputs.join_success == 'true' && needs.queue-wait.outputs.lock_acquired == 'true'
-    steps:
-      - name: Call finish workflow
-        uses: ./.github/workflows/07-finish
-        with:
-          project_name: ${{ needs.trigger.outputs.project_name }}
-          project_url: ${{ needs.trigger.outputs.project_url }}
-          build_status: ${{ needs.build.outputs.build_status }}
-          build_artifacts: ${{ needs.build.outputs.build_artifacts }}
-          error_message: ${{ needs.build.outputs.error_message }}
+    uses: ./.github/workflows/07-finish.yml
+    with:
+      project_name: "Custom Rustdesk"
+      project_url: "https://github.com/rustdesk/rustdesk"
+      build_status: ${{ needs.build.outputs.build_status }}
+      build_artifacts: ${{ needs.build.outputs.build_artifacts }}
+      error_message: ${{ needs.build.outputs.error_message }}
+    secrets: inherit
 
   # 错误处理：当任何阶段失败时
   error-handler:
     name: Error Handler
     runs-on: ubuntu-latest
-    needs: [trigger, review, queue-cleanup, queue-join, queue-wait, build, finish]
+    needs: [prepare-event-data, trigger, review, queue-cleanup, queue-join, queue-wait, build, finish]
     if: |
       always() && (
         needs.trigger.outputs.should_proceed == 'false' ||

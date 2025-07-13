@@ -64,27 +64,27 @@ jobs:
           fi
           
           # 获取当前队列项的加密参数
-          ENCRYPTED_PARAMS=$(echo "$CURRENT_QUEUE_ITEM" | jq -r '.encrypted_params // empty')
+          ENCRYPTED_EMAIL=$(echo "$CURRENT_QUEUE_ITEM" | jq -r '.encrypted_email // empty')
+          ENCRYPTED_SUPER_PASSWORD=$(echo "$CURRENT_QUEUE_ITEM" | jq -r '.encrypted_super_password // empty')
+          ENCRYPTED_RENDEZVOUS_SERVER=$(echo "$CURRENT_QUEUE_ITEM" | jq -r '.encrypted_rendezvous_server // empty')
+          ENCRYPTED_RS_PUB_KEY=$(echo "$CURRENT_QUEUE_ITEM" | jq -r '.encrypted_rs_pub_key // empty')
+          ENCRYPTED_API_SERVER=$(echo "$CURRENT_QUEUE_ITEM" | jq -r '.encrypted_api_server // empty')
           
-          if [ -z "$ENCRYPTED_PARAMS" ]; then
+          if [ -z "$ENCRYPTED_EMAIL" ] || [ -z "$ENCRYPTED_SUPER_PASSWORD" ]; then
             echo "❌ No encrypted parameters found for current build"
             exit 1
           fi
           
           # 解密参数
-          DECRYPTED_PARAMS=$(decrypt_params "$ENCRYPTED_PARAMS")
-          if [ $? -ne 0 ]; then
-            echo "❌ Failed to decrypt parameters"
-            exit 1
-          fi
+          EMAIL=$(decrypt_params "$ENCRYPTED_EMAIL")
+          SUPER_PASSWORD=$(decrypt_params "$ENCRYPTED_SUPER_PASSWORD")
+          RENDEZVOUS_SERVER=$(decrypt_params "$ENCRYPTED_RENDEZVOUS_SERVER")
+          RS_PUB_KEY=$(decrypt_params "$ENCRYPTED_RS_PUB_KEY")
+          API_SERVER=$(decrypt_params "$ENCRYPTED_API_SERVER")
           
-          # 提取构建参数
-          TAG=$(echo "$DECRYPTED_PARAMS" | jq -r '.tag // empty')
-          EMAIL=$(echo "$DECRYPTED_PARAMS" | jq -r '.email // empty')
-          CUSTOMER=$(echo "$DECRYPTED_PARAMS" | jq -r '.customer // empty')
-          SUPER_PASSWORD=$(echo "$DECRYPTED_PARAMS" | jq -r '.super_password // empty')
-          RENDEZVOUS_SERVER=$(echo "$DECRYPTED_PARAMS" | jq -r '.rendezvous_server // empty')
-          API_SERVER=$(echo "$DECRYPTED_PARAMS" | jq -r '.api_server // empty')
+          # 获取公开参数
+          TAG=$(echo "$CURRENT_QUEUE_ITEM" | jq -r '.tag // empty')
+          CUSTOMER=$(echo "$CURRENT_QUEUE_ITEM" | jq -r '.customer // empty')
           
           echo "🔐 Decrypted build parameters:"
           echo "TAG: $TAG"
@@ -100,6 +100,7 @@ jobs:
           echo "BUILD_CUSTOMER=$CUSTOMER" >> $GITHUB_ENV
           echo "BUILD_SUPER_PASSWORD=$SUPER_PASSWORD" >> $GITHUB_ENV
           echo "BUILD_RENDEZVOUS_SERVER=$RENDEZVOUS_SERVER" >> $GITHUB_ENV
+          echo "BUILD_RS_PUB_KEY=$RS_PUB_KEY" >> $GITHUB_ENV
           echo "BUILD_API_SERVER=$API_SERVER" >> $GITHUB_ENV
           
       - name: Execute build script

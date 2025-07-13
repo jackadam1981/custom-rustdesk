@@ -1,43 +1,39 @@
 name: 02 - Review and Validation
 
 on:
-  workflow_run:
-    workflows: ["01 - Trigger and Parameter Extraction"]
-    types: [completed]
-
-# 添加权限配置
-permissions:
-  issues: write
-  contents: read
+  workflow_call:
+    inputs:
+      trigger_output:
+        description: "Trigger workflow output data"
+        required: true
+        type: string
+    outputs:
+      review_passed:
+        description: "Whether review passed"
+        value: ${{ jobs.review.outputs.review_passed }}
+      review_message:
+        description: "Review message"
+        value: ${{ jobs.review.outputs.review_message }}
 
 jobs:
   review:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     outputs:
-      review_output: ${{ toJson(steps.output.outputs.data) }}
-      build_approved: ${{ steps.output.outputs.build_approved }}
+      review_passed: ${{ steps.output.outputs.review_passed }}
+      review_message: ${{ steps.output.outputs.review_message }}
     steps:
-      - name: Get trigger workflow data
-        id: get_data
+      - name: Setup review data
+        id: setup
         run: |
-          # 获取触发工作流的数据
-          TRIGGER_RUN_ID="${{ github.event.workflow_run.id }}"
-          
-          # 获取触发工作流的输出
-          TRIGGER_OUTPUT=$(curl -s \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/runs/$TRIGGER_RUN_ID/jobs" | \
-            jq -r '.jobs[0].steps[] | select(.name == "Setup framework") | .outputs.trigger_output // empty')
+          # 使用输入参数
+          TRIGGER_OUTPUT='${{ inputs.trigger_output }}'
           
           if [ -z "$TRIGGER_OUTPUT" ]; then
-            echo "❌ Failed to get trigger workflow data"
+            echo "❌ No trigger output provided"
             exit 1
           fi
           
           echo "TRIGGER_OUTPUT=$TRIGGER_OUTPUT" >> $GITHUB_ENV
-          echo "trigger_output=$TRIGGER_OUTPUT" >> $GITHUB_OUTPUT
       
       - name: Extract data
         id: extract

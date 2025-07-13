@@ -73,24 +73,19 @@ jobs:
           fi
           
           # 获取当前队列项的加密参数
-          ENCRYPTED_PARAMS=$(echo "$CURRENT_QUEUE_ITEM" | jq -r '.encrypted_params // empty')
+          ENCRYPTED_EMAIL=$(echo "$CURRENT_QUEUE_ITEM" | jq -r '.encrypted_email // empty')
           
-          if [ -z "$ENCRYPTED_PARAMS" ]; then
+          if [ -z "$ENCRYPTED_EMAIL" ]; then
             echo "❌ No encrypted parameters found for current build"
             exit 1
           fi
           
           # 解密参数
-          DECRYPTED_PARAMS=$(decrypt_params "$ENCRYPTED_PARAMS")
-          if [ $? -ne 0 ]; then
-            echo "❌ Failed to decrypt parameters"
-            exit 1
-          fi
+          EMAIL=$(decrypt_params "$ENCRYPTED_EMAIL")
           
-          # 提取构建参数（用于通知等）
-          TAG=$(echo "$DECRYPTED_PARAMS" | jq -r '.tag // empty')
-          EMAIL=$(echo "$DECRYPTED_PARAMS" | jq -r '.email // empty')
-          CUSTOMER=$(echo "$DECRYPTED_PARAMS" | jq -r '.customer // empty')
+          # 获取公开参数
+          TAG=$(echo "$CURRENT_QUEUE_ITEM" | jq -r '.tag // empty')
+          CUSTOMER=$(echo "$CURRENT_QUEUE_ITEM" | jq -r '.customer // empty')
           
           echo "🔐 Decrypted parameters for notification:"
           echo "TAG: $TAG"

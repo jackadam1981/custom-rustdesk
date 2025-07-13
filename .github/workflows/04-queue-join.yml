@@ -1,54 +1,64 @@
 name: 04 - Queue Join
 
 on:
-  workflow_run:
-    workflows: ["03 - Queue Cleanup"]
-    types: [completed]
-
-# 添加权限配置
-permissions:
-  issues: write
-  contents: read
+  workflow_call:
+    inputs:
+      trigger_output:
+        description: "Trigger workflow output data"
+        required: true
+        type: string
+      trigger_type:
+        description: "Trigger type (issue or workflow_dispatch)"
+        required: true
+        type: string
+      build_id:
+        description: "Build ID"
+        required: true
+        type: string
+    outputs:
+      join_success:
+        description: "Whether join was successful"
+        value: ${{ jobs.queue_join.outputs.join_success }}
+      queue_position:
+        description: "Position in queue"
+        value: ${{ jobs.queue_join.outputs.queue_position }}
 
 jobs:
   queue_join:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    outputs:
+      join_success: ${{ steps.join.outputs.join_success }}
+      queue_position: ${{ steps.join.outputs.queue_position }}
     steps:
-      - name: Get review workflow data
-        id: get_data
+      - name: Setup data
+        id: setup
         run: |
-          # 获取审核工作流的数据
-          REVIEW_RUN_ID="${{ github.event.workflow_run.id }}"
+          # 使用输入参数
+          TRIGGER_OUTPUT='${{ inputs.trigger_output }}'
+          TRIGGER_TYPE='${{ inputs.trigger_type }}'
+          BUILD_ID='${{ inputs.build_id }}'
           
-          # 获取审核工作流的输出
-          REVIEW_OUTPUT=$(curl -s \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/runs/$REVIEW_RUN_ID/jobs" | \
-            jq -r '.jobs[0].steps[] | select(.name == "Output data") | .outputs.review_output // empty')
-          
-          if [ -z "$REVIEW_OUTPUT" ]; then
-            echo "❌ Failed to get review workflow data"
+          if [ -z "$TRIGGER_OUTPUT" ]; then
+            echo "❌ No trigger output provided"
             exit 1
           fi
           
-          echo "REVIEW_OUTPUT=$REVIEW_OUTPUT" >> $GITHUB_ENV
+          echo "TRIGGER_OUTPUT=$TRIGGER_OUTPUT" >> $GITHUB_ENV
+          echo "TRIGGER_TYPE=$TRIGGER_TYPE" >> $GITHUB_ENV
+          echo "BUILD_ID=$BUILD_ID" >> $GITHUB_ENV
           
-          # 获取触发类型和构建ID
-          TRIGGER_RUN_ID=$(curl -s \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/runs/$REVIEW_RUN_ID/jobs" | \
-            jq -r '.jobs[0].steps[] | select(.name == "Get trigger workflow data") | .outputs.trigger_type // empty')
-          
-          echo "TRIGGER_TYPE=$TRIGGER_RUN_ID" >> $GITHUB_ENV
+          # 获取触发方式
+          if [ "$TRIGGER_TYPE" = "workflow_dispatch" ]; then
+            echo "QUEUE_LIMIT=5" >> $GITHUB_ENV
+          else
+            echo "QUEUE_LIMIT=3" >> $GITHUB_ENV
+          fi
       
       - name: Extract data
         id: extract
         run: |
-          # 从review阶段获取数据
-          INPUT='${{ env.REVIEW_OUTPUT }}'
+          # 从trigger阶段获取数据
+          INPUT='${{ env.TRIGGER_OUTPUT }}'
           
           # 验证输入JSON格式
           echo "Validating input JSON format..."
@@ -57,15 +67,6 @@ jobs:
           
           # 设置环境变量供后续步骤使用
           echo "CURRENT_DATA=$INPUT" >> $GITHUB_ENV
-          
-          # 获取触发方式
-          if [ "${{ env.TRIGGER_TYPE }}" = "workflow_dispatch" ]; then
-            echo "TRIGGER_TYPE=workflow_dispatch" >> $GITHUB_ENV
-            echo "QUEUE_LIMIT=5" >> $GITHUB_ENV
-          else
-            echo "TRIGGER_TYPE=issue" >> $GITHUB_ENV
-            echo "QUEUE_LIMIT=3" >> $GITHUB_ENV
-          fi
 
       - name: Auto cleanup queue
         run: |
@@ -202,62 +203,15 @@ jobs:
               echo "Performing queue cleanup..."
               echo "Cleanup reasons: ${CLEANUP_REASONS[*]}"
               
-              # 开始清理数据
-              CLEANED_QUEUE_DATA=$(echo "$QUEUE_DATA" | \
-                jq --arg new_version "$((CURRENT_VERSION + 1))" '
-                # 移除重复项
-                .queue = (.queue | group_by(.issue_number) | map(.[0]))
-                # 重置异常锁
-                | .run_id = null
-                | .version = ($new_version | tonumber)
-              ')
-              
-              # 移除无效issue
-              if [ ${#INVALID_ISSUES[@]} -gt 0 ]; then
-                for invalid_issue in "${INVALID_ISSUES[@]}"; do
-                  CLEANED_QUEUE_DATA=$(echo "$CLEANED_QUEUE_DATA" | \
-                    jq --arg issue_number "$invalid_issue" \
-                    '.queue = (.queue | map(select(.issue_number != $issue_number)))')
-                done
-              fi
-              
-              # 移除已结束的runs
-              if [ ${#EXPIRED_RUNS[@]} -gt 0 ]; then
-                for expired_run in "${EXPIRED_RUNS[@]}"; do
-                  CLEANED_QUEUE_DATA=$(echo "$CLEANED_QUEUE_DATA" | \
-                    jq --arg run_id "$expired_run" \
-                    '.queue = (.queue | map(select(.issue_number != $run_id)))')
-                done
-              fi
-              
-              # 计算清理后的队列数量
-              CLEANED_TOTAL_COUNT=$(echo "$CLEANED_QUEUE_DATA" | jq '.queue | length // 0')
-              CLEANED_ISSUE_COUNT=$(echo "$CLEANED_QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "issue")) | length // 0')
-              CLEANED_WORKFLOW_COUNT=$(echo "$CLEANED_QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "workflow_dispatch")) | length // 0')
-              
-              echo "Cleaned queue data: $CLEANED_QUEUE_DATA"
-              echo "Cleaned counts - Total: $CLEANED_TOTAL_COUNT, Issue: $CLEANED_ISSUE_COUNT, Workflow: $CLEANED_WORKFLOW_COUNT"
-              
               # 构建清理原因文本
               CLEANUP_REASON_TEXT=""
               for reason in "${CLEANUP_REASONS[@]}"; do
                 CLEANUP_REASON_TEXT="${CLEANUP_REASON_TEXT}• $reason\n"
               done
               
-              # 更新队列管理issue
-              UPDATED_BODY="## 构建队列管理\n\n**最后更新时间：** \$(date '+%Y-%m-%d %H:%M:%S')\n\n### 当前状态\n- **构建锁状态：** 空闲 🔓 (已清理)\n- **当前构建：** 无\n- **锁持有者：** 无\n- **版本：** \$(echo \"$CLEANED_QUEUE_DATA\" | jq -r '.version')\n\n### 构建队列\n- **当前数量：** $CLEANED_TOTAL_COUNT/5\n- **Issue触发：** $CLEANED_ISSUE_COUNT/3\n- **手动触发：** $CLEANED_WORKFLOW_COUNT/5\n\n---\n\n### 清理记录\n**清理时间：** \$(date '+%Y-%m-%d %H:%M:%S')\n**清理原因：**\n$CLEANUP_REASON_TEXT\n### 队列数据\n\`\`\`json\n$CLEANED_QUEUE_DATA\n\`\`\`"
-              
-              # 尝试更新队列管理issue
-              if update_queue_issue "$QUEUE_MANAGER_ISSUE" "$UPDATED_BODY"; then
+              # 使用工具函数清理队列数据
+              if cleanup_queue_data "$QUEUE_MANAGER_ISSUE" "$CLEANUP_REASON_TEXT" "$CURRENT_VERSION" "$QUEUE_DATA" "${INVALID_ISSUES[@]}" "${EXPIRED_RUNS[@]}"; then
                 echo "✅ Queue cleanup successful on attempt $attempt"
-                echo "Queue cleanup completed successfully!"
-                echo "Cleaned total count: $CLEANED_TOTAL_COUNT"
-                echo "Cleaned issue count: $CLEANED_ISSUE_COUNT"
-                echo "Cleaned workflow count: $CLEANED_WORKFLOW_COUNT"
-                
-                # 保存清理后的数据供后续使用（使用jq -c生成单行JSON）
-                echo "CLEANED_QUEUE_DATA=$(echo "$CLEANED_QUEUE_DATA" | jq -c .)" >> $GITHUB_ENV
-                echo "QUEUE_CLEANED=true" >> $GITHUB_ENV
                 break
               else
                 echo "❌ Queue cleanup failed on attempt $attempt"
@@ -265,383 +219,182 @@ jobs:
                   echo "Retrying in $RETRY_DELAY seconds..."
                   sleep $RETRY_DELAY
                 else
-                  echo "Max retries reached, continuing without cleanup..."
-                  echo "QUEUE_CLEANED=false" >> $GITHUB_ENV
+                  echo "Max retries reached, triggering queue reset..."
+                  reset_queue_to_default "$QUEUE_MANAGER_ISSUE" "清理失败，重置队列"
                   break
                 fi
               fi
             else
               echo "No cleanup needed, queue is healthy"
-              echo "QUEUE_CLEANED=false" >> $GITHUB_ENV
               break
             fi
           done
 
-      - name: Check queue status
-        id: check_queue
+      - name: Join queue
+        id: join
         run: |
+          # 加载共享工具函数
+          source .github/workflows/shared/github-utils.yml
+          
+          echo "Joining build queue..."
+          
           # 获取当前队列状态
-          echo "Checking current queue status..."
-          
-          # 加载共享工具函数
-          source .github/workflows/shared/github-utils.yml
-          
-          # 检查是否已经清理过队列
-          if [ "${{ env.QUEUE_CLEANED }}" = "true" ]; then
-            echo "Using cleaned queue data from previous step"
-            QUEUE_DATA='${{ env.CLEANED_QUEUE_DATA }}'
-          else
-            # 获取队列管理issue的内容
-            QUEUE_MANAGER_ISSUE="1"
-            QUEUE_MANAGER_CONTENT=$(get_queue_manager_content "$QUEUE_MANAGER_ISSUE")
-            QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
-            
-            # 如果提取失败，直接退出
-            if [ -z "$QUEUE_DATA" ]; then
-              echo "❌ Failed to extract queue JSON, aborting."
-              exit 1
-            fi
-            
-            # 验证JSON格式
-            if ! echo "$QUEUE_DATA" | jq . > /dev/null 2>&1; then
-              echo "❌ Invalid JSON format in queue data, aborting."
-              exit 1
-            fi
-            
-            # 强制单行JSON
-            QUEUE_DATA=$(echo "$QUEUE_DATA" | jq -c .)
-          fi
-          
-          # 验证JSON格式
-          echo "Validating JSON format..."
-          echo "$QUEUE_DATA" | jq . > /dev/null
-          echo "JSON validation passed"
-          
-          # 调试输出队列数据
-          echo "Queue data: $QUEUE_DATA"
-          echo "Queue data type: $(echo "$QUEUE_DATA" | jq -r 'type')"
-          echo "Queue: $(echo "$QUEUE_DATA" | jq -r '.queue')"
-          echo "Current build: $(echo "$QUEUE_DATA" | jq -r '.current_build')"
-          echo "Lock holder: $(echo "$QUEUE_DATA" | jq -r '.lock_holder')"
-          
-          # 获取当前队列数量和类型统计
-          TOTAL_QUEUE_COUNT=$(echo "$QUEUE_DATA" | jq '.queue | length // 0')
-          ISSUE_QUEUE_COUNT=$(echo "$QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "issue")) | length // 0')
-          WORKFLOW_QUEUE_COUNT=$(echo "$QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "workflow_dispatch")) | length // 0')
-          CURRENT_BUILD=$(echo "$QUEUE_DATA" | jq -r '.current_build // null')
-          LOCK_HOLDER=$(echo "$QUEUE_DATA" | jq -r '.lock_holder // null')
-          
-          echo "Total queue count: $TOTAL_QUEUE_COUNT/5"
-          echo "Issue queue count: $ISSUE_QUEUE_COUNT/3"
-          echo "Workflow queue count: $WORKFLOW_QUEUE_COUNT/5"
-          echo "Current build: $CURRENT_BUILD"
-          echo "Lock holder: $LOCK_HOLDER"
-          
-          # 检查是否可以加入队列
-          QUEUE_FULL=false
-          REJECT_REASON=""
-          
-          # 根据触发类型检查队列限制
-          if [ "$TRIGGER_TYPE" = "issue" ]; then
-            if [ "$ISSUE_QUEUE_COUNT" -ge 3 ]; then
-              QUEUE_FULL=true
-              REJECT_REASON="Issue触发队列已满 (当前: $ISSUE_QUEUE_COUNT/3)"
-            fi
-          else
-            if [ "$TOTAL_QUEUE_COUNT" -ge 5 ]; then
-              QUEUE_FULL=true
-              REJECT_REASON="手动触发队列已满 (当前: $TOTAL_QUEUE_COUNT/5)"
-            fi
-          fi
-          
-          if [ "$QUEUE_FULL" = true ]; then
-            echo "Queue is full: $REJECT_REASON"
-            echo "QUEUE_FULL=true" >> $GITHUB_ENV
-            echo "REJECT_REASON=$REJECT_REASON" >> $GITHUB_ENV
-            
-            # 计算预计等待时间（假设每个构建需要30分钟）
-            ESTIMATED_WAIT=$((TOTAL_QUEUE_COUNT * 30))
-            echo "ESTIMATED_WAIT=$ESTIMATED_WAIT" >> $GITHUB_ENV
-          else
-            echo "Queue has space"
-            echo "QUEUE_FULL=false" >> $GITHUB_ENV
-          fi
-          
-          # 保存队列数据供后续使用
-          echo "QUEUE_DATA=$QUEUE_DATA" >> $GITHUB_ENV
-          echo "CURRENT_BUILD=$CURRENT_BUILD" >> $GITHUB_ENV
-          echo "LOCK_HOLDER=$LOCK_HOLDER" >> $GITHUB_ENV
-
-      - name: Handle queue full
-        if: env.QUEUE_FULL == 'true'
-        run: |
-          # 加载共享工具函数
-          source .github/workflows/shared/github-utils.yml
-          
-          # 从Issue #1实时获取最新队列数据
           QUEUE_MANAGER_ISSUE="1"
           QUEUE_MANAGER_CONTENT=$(get_queue_manager_content "$QUEUE_MANAGER_ISSUE")
           QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
           
-          # 如果提取失败，直接退出
-          if [ -z "$QUEUE_DATA" ]; then
-            echo "❌ Failed to extract queue JSON, aborting."
-            exit 1
+          # 如果解析JSON失败，直接重置
+          if [ -z "$QUEUE_DATA" ] || ! echo "$QUEUE_DATA" | jq . > /dev/null 2>&1; then
+            echo "❌ JSON parsing failed, resetting queue template"
+            reset_queue_to_default "$QUEUE_MANAGER_ISSUE" "JSON解析失败，重置为默认模板"
+            QUEUE_MANAGER_CONTENT=$(get_queue_manager_content "$QUEUE_MANAGER_ISSUE")
+            QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
           fi
           
-          # 验证JSON格式
-          if ! echo "$QUEUE_DATA" | jq . > /dev/null 2>&1; then
-            echo "❌ Invalid JSON format in queue data, aborting."
-            exit 1
-          fi
+          # 获取当前状态
+          CURRENT_VERSION=$(echo "$QUEUE_DATA" | jq -r '.version // 1')
+          LOCK_RUN_ID=$(echo "$QUEUE_DATA" | jq -r '.run_id // null')
+          QUEUE=$(echo "$QUEUE_DATA" | jq -r '.queue // []')
           
-          # 强制单行JSON
-          QUEUE_DATA=$(echo "$QUEUE_DATA" | jq -c .)
-
-          TOTAL_QUEUE_COUNT=$(echo "$QUEUE_DATA" | jq '.queue | length // 0')
-          ISSUE_QUEUE_COUNT=$(echo "$QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "issue")) | length // 0')
-          WORKFLOW_QUEUE_COUNT=$(echo "$QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "workflow_dispatch")) | length // 0')
-          REJECT_REASON='${{ env.REJECT_REASON }}'
-          ESTIMATED_WAIT='${{ env.ESTIMATED_WAIT }}'
+          echo "Current version: $CURRENT_VERSION"
+          echo "Lock run_id: $LOCK_RUN_ID"
+          echo "Queue: $QUEUE"
           
-          # 队列满员，拒绝请求
-          REJECT_COMMENT="## ❌ 队列已满
-
-          **拒绝原因：** $REJECT_REASON
-          **当前队列状态：**
-          - 总队列：$TOTAL_QUEUE_COUNT/5
-          - Issue触发：$ISSUE_QUEUE_COUNT/3
-          - 手动触发：$WORKFLOW_QUEUE_COUNT/5
-          **预计等待时间：** 约${ESTIMATED_WAIT}分钟
-
-          **建议：**
-          - 请稍后重试
-          - 或使用其他触发方式
-
-          **时间：** $(date '+%Y-%m-%d %H:%M:%S')"
+          # 检查队列长度限制
+          QUEUE_LENGTH=$(echo "$QUEUE" | jq 'length')
+          QUEUE_LIMIT="${{ env.QUEUE_LIMIT }}"
           
-          # 只在issue模式下添加拒绝评论
-          if [ "$TRIGGER_TYPE" = "issue" ]; then
+          echo "Queue length: $QUEUE_LENGTH, Limit: $QUEUE_LIMIT"
+          
+          if [ "$QUEUE_LENGTH" -ge "$QUEUE_LIMIT" ]; then
+            echo "❌ Queue is full (limit: $QUEUE_LIMIT)"
+            
+            # 添加拒绝评论
+            REJECT_COMMENT="## ❌ 构建被拒绝
+
+            **拒绝原因：** 构建队列已满（当前 $QUEUE_LENGTH/$QUEUE_LIMIT）
+            
+            **当前队列：**
+            $(echo "$QUEUE" | jq -r '.[] | "• #\(.issue_number) - \(.customer) (\(.join_time))"')
+            
+            **建议：** 请稍后重试或联系管理员
+            **时间：** $(date '+%Y-%m-%d %H:%M:%S')"
+            
             # 获取原始issue编号
-            ORIGINAL_ISSUE_NUMBER=$(curl -s \
-              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              -H "Accept: application/vnd.github.v3+json" \
-              "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/jobs" | \
-              jq -r '.jobs[0].steps[] | select(.name == "Get review workflow data") | .outputs.trigger_type // empty')
+            ORIGINAL_ISSUE_NUMBER="${{ env.BUILD_ID }}"
             
             if [ -n "$ORIGINAL_ISSUE_NUMBER" ]; then
               add_issue_comment "$ORIGINAL_ISSUE_NUMBER" "$REJECT_COMMENT"
             fi
+            
+            echo "join_success=false" >> $GITHUB_OUTPUT
+            echo "queue_position=-1" >> $GITHUB_OUTPUT
+            exit 0
           fi
           
-          # 退出工作流
-          exit 1
-
-      - name: Join queue
-        if: env.QUEUE_FULL == 'false'
-        env:
-          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
-        run: |
-          # 加入队列
-          echo "Joining queue..."
+          # 检查是否已经在队列中
+          EXISTING_ITEM=$(echo "$QUEUE" | jq -r --arg build_id "${{ env.BUILD_ID }}" '.[] | select(.build_id == $build_id) | .issue_number // empty')
           
-          # 加载共享工具函数
-          source .github/workflows/shared/github-utils.yml
-          
-          # 重试机制参数
-          MAX_RETRIES=5
-          RETRY_DELAY=10
-          
-          # 获取当前构建信息
-          if [ "$TRIGGER_TYPE" = "issue" ]; then
-            CURRENT_BUILD_ID=$(curl -s \
-              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              -H "Accept: application/vnd.github.v3+json" \
-              "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/jobs" | \
-              jq -r '.jobs[0].steps[] | select(.name == "Get review workflow data") | .outputs.trigger_type // empty')
-            BUILD_TITLE="Issue Build"
-          else
-            CURRENT_BUILD_ID="${{ github.run_id }}"
-            BUILD_TITLE="Manual Build"
+          if [ -n "$EXISTING_ITEM" ]; then
+            echo "⚠️ Already in queue at position: $EXISTING_ITEM"
+            
+            # 计算队列位置
+            QUEUE_POSITION=$(echo "$QUEUE" | jq -r --arg build_id "${{ env.BUILD_ID }}" 'index(.[] | select(.build_id == $build_id)) + 1')
+            
+            echo "join_success=true" >> $GITHUB_OUTPUT
+            echo "queue_position=$QUEUE_POSITION" >> $GITHUB_OUTPUT
+            exit 0
           fi
-          CURRENT_USER="${{ github.actor }}"
-          JOIN_TIME=$(date -Iseconds)
           
-          # 从review阶段获取的参数数据
-          REVIEW_DATA='${{ env.CURRENT_DATA }}'
+          # 准备新队列项数据
+          CURRENT_TIME=$(date '+%Y-%m-%d %H:%M:%S')
+          BUILD_TITLE="Custom Rustdesk Build"
           
-          # 为当前队列项加密参数
-          echo "🔐 Encrypting parameters for current queue item..."
-          ENCRYPTED_ITEM_PARAMS=$(encrypt_params "$REVIEW_DATA")
-          if [ $? -ne 0 ]; then
-            echo "❌ Failed to encrypt parameters for queue item"
+          # 从trigger数据中提取信息
+          TRIGGER_DATA='${{ env.CURRENT_DATA }}'
+          TAG=$(echo "$TRIGGER_DATA" | jq -r '.tag')
+          CUSTOMER=$(echo "$TRIGGER_DATA" | jq -r '.customer')
+          CUSTOMER_LINK=$(echo "$TRIGGER_DATA" | jq -r '.customer_link')
+          SLOGAN=$(echo "$TRIGGER_DATA" | jq -r '.slogan')
+          
+          # 加密敏感参数
+          ENCRYPTION_KEY="${{ vars.ENCRYPTION_KEY }}"
+          
+          if [ -z "$ENCRYPTION_KEY" ]; then
+            echo "❌ Encryption key not found in repository variables"
+            echo "join_success=false" >> $GITHUB_OUTPUT
+            echo "queue_position=-1" >> $GITHUB_OUTPUT
             exit 1
           fi
           
-          # 创建队列项（包含自己的加密参数）
-          QUEUE_ITEM=$(jq -n \
-            --arg build_id "$CURRENT_BUILD_ID" \
+          # 加密敏感参数
+          ENCRYPTED_EMAIL=$(encrypt_params "$(echo "$TRIGGER_DATA" | jq -r '.email')")
+          ENCRYPTED_SUPER_PASSWORD=$(encrypt_params "$(echo "$TRIGGER_DATA" | jq -r '.super_password')")
+          ENCRYPTED_RENDEZVOUS_SERVER=$(encrypt_params "$(echo "$TRIGGER_DATA" | jq -r '.rendezvous_server')")
+          ENCRYPTED_RS_PUB_KEY=$(encrypt_params "$(echo "$TRIGGER_DATA" | jq -r '.rs_pub_key')")
+          ENCRYPTED_API_SERVER=$(encrypt_params "$(echo "$TRIGGER_DATA" | jq -r '.api_server')")
+          
+          # 创建新的队列项
+          NEW_QUEUE_ITEM=$(jq -c -n \
+            --arg build_id "${{ env.BUILD_ID }}" \
             --arg build_title "$BUILD_TITLE" \
-            --arg user "$CURRENT_USER" \
-            --arg join_time "$JOIN_TIME" \
-            --arg trigger_type "$TRIGGER_TYPE" \
-            --arg encrypted_params "$ENCRYPTED_ITEM_PARAMS" \
-            '{
-              build_id: $build_id,
-              build_title: $build_title,
-              user: $user,
-              join_time: $join_time,
-              trigger_type: $trigger_type,
-              status: "waiting",
-              encrypted_params: $encrypted_params
-            }')
+            --arg trigger_type "${{ env.TRIGGER_TYPE }}" \
+            --arg tag "$TAG" \
+            --arg customer "$CUSTOMER" \
+            --arg customer_link "$CUSTOMER_LINK" \
+            --arg slogan "$SLOGAN" \
+            --arg join_time "$CURRENT_TIME" \
+            --arg encrypted_email "$ENCRYPTED_EMAIL" \
+            --arg encrypted_super_password "$ENCRYPTED_SUPER_PASSWORD" \
+            --arg encrypted_rendezvous_server "$ENCRYPTED_RENDEZVOUS_SERVER" \
+            --arg encrypted_rs_pub_key "$ENCRYPTED_RS_PUB_KEY" \
+            --arg encrypted_api_server "$ENCRYPTED_API_SERVER" \
+            '{build_id: $build_id, build_title: $build_title, trigger_type: $trigger_type, tag: $tag, customer: $customer, customer_link: $customer_link, slogan: $slogan, join_time: $join_time, encrypted_email: $encrypted_email, encrypted_super_password: $encrypted_super_password, encrypted_rendezvous_server: $encrypted_rendezvous_server, encrypted_rs_pub_key: $encrypted_rs_pub_key, encrypted_api_server: $encrypted_api_server}')
           
-          # 准备加密所有参数（在加入队列时首次加密）
-          echo "🔐 Preparing to encrypt parameters for queue storage..."
-          ALL_PARAMS="$REVIEW_DATA"
+          # 添加到队列
+          NEW_QUEUE=$(echo "$QUEUE" | jq --argjson new_item "$NEW_QUEUE_ITEM" '. + [$new_item]')
           
-          echo "Queue item: $QUEUE_ITEM"
+          # 更新队列数据
+          NEW_QUEUE_DATA=$(echo "$QUEUE_DATA" | jq --argjson new_queue "$NEW_QUEUE" '.queue = $new_queue')
           
-          # 重试加入队列
-          for attempt in $(seq 1 $MAX_RETRIES); do
-            echo "Attempt $attempt of $MAX_RETRIES to join queue..."
+          # 更新队列管理issue
+          UPDATED_TOTAL_COUNT=$(echo "$NEW_QUEUE_DATA" | jq '.queue | length // 0')
+          UPDATED_ISSUE_COUNT=$(echo "$NEW_QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "issue")) | length // 0')
+          UPDATED_WORKFLOW_COUNT=$(echo "$NEW_QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "workflow_dispatch")) | length // 0')
+          
+          UPDATED_BODY="## 构建队列管理\n\n**最后更新时间：** \$(date '+%Y-%m-%d %H:%M:%S')\n\n### 当前状态\n- **构建锁状态：** 空闲 🔓\n- **当前构建：** 无\n- **锁持有者：** 无\n- **版本：** $CURRENT_VERSION\n\n### 构建队列\n- **当前数量：** $UPDATED_TOTAL_COUNT/5\n- **Issue触发：** $UPDATED_ISSUE_COUNT/3\n- **手动触发：** $UPDATED_WORKFLOW_COUNT/5\n\n---\n\n### 队列数据\n\`\`\`json\n$NEW_QUEUE_DATA\n\`\`\`"
+          
+                    if update_queue_issue "$QUEUE_MANAGER_ISSUE" "$UPDATED_BODY"; then
+            echo "✅ Successfully joined queue"
             
-            # 获取当前队列数据
-            QUEUE_MANAGER_ISSUE="1"
-            QUEUE_MANAGER_CONTENT=$(get_queue_manager_content "$QUEUE_MANAGER_ISSUE")
-            QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
+            # 计算队列位置
+            QUEUE_POSITION=$(echo "$NEW_QUEUE" | jq 'length')
             
-            # 调试输出
-            echo "Debug: QUEUE_MANAGER_CONTENT length: $(echo "$QUEUE_MANAGER_CONTENT" | wc -c)"
-            echo "Debug: Issue body preview: $(echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | head -5)"
-            echo "Debug: Extracted QUEUE_DATA: '$QUEUE_DATA'"
-            
-            # 如果提取失败，直接退出
-            if [ -z "$QUEUE_DATA" ]; then
-              echo "❌ Failed to extract queue JSON, aborting."
-              echo "Debug: Issue body contains:"
-              echo "$QUEUE_MANAGER_CONTENT" | jq -r '.body' | head -20
-              exit 1
-            fi
-            
-            # 验证JSON格式
-            if ! echo "$QUEUE_DATA" | jq . > /dev/null 2>&1; then
-              echo "❌ Invalid JSON format in queue data, aborting."
-              exit 1
-            fi
-            
-            # 强制单行JSON
-            QUEUE_DATA=$(echo "$QUEUE_DATA" | jq -c .)
-            
-            # 获取当前版本号
-            CURRENT_VERSION=$(echo "$QUEUE_DATA" | jq -r '.version // 1')
-            echo "Current version: $CURRENT_VERSION"
-            
-            # 检查是否已经在队列中
-            EXISTING_ITEM=$(echo "$QUEUE_DATA" | \
-              jq -r --arg build_id "$CURRENT_BUILD_ID" \
-              '.queue[] | select(.build_id == $build_id) | .build_id // empty')
-            
-            if [ -n "$EXISTING_ITEM" ]; then
-              echo "✅ Already in queue, skipping join"
-              break
-            fi
-            
-            # 更新队列数据
-            UPDATED_QUEUE_DATA=$(echo "$QUEUE_DATA" | \
-              jq --argjson item "$QUEUE_ITEM" \
-              --arg new_version "$((CURRENT_VERSION + 1))" \
-              '.queue += [$item] | .version = ($new_version | tonumber)')
-            
-            # 提取当前构建的公开信息（用于顶层显示）
-            CURRENT_TAG=$(echo "$REVIEW_DATA" | jq -r '.tag // empty')
-            CURRENT_CUSTOMER=$(echo "$REVIEW_DATA" | jq -r '.customer // empty')
-            CURRENT_CUSTOMER_LINK=$(echo "$REVIEW_DATA" | jq -r '.customer_link // empty')
-            CURRENT_SLOGAN=$(echo "$REVIEW_DATA" | jq -r '.slogan // empty')
-            
-            # 添加顶层公开信息
-            UPDATED_QUEUE_DATA=$(echo "$UPDATED_QUEUE_DATA" | \
-              jq --arg tag "$CURRENT_TAG" \
-                 --arg customer "$CURRENT_CUSTOMER" \
-                 --arg customer_link "$CURRENT_CUSTOMER_LINK" \
-                 --arg slogan "$CURRENT_SLOGAN" \
-              '. + {
-                tag: $tag,
-                customer: $customer,
-                customer_link: $customer_link,
-                slogan: $slogan
-              }')
-            
-            echo "Updated queue data: $UPDATED_QUEUE_DATA"
-            
-            # 计算队列数量
-            UPDATED_TOTAL_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.queue | length // 0')
-            UPDATED_ISSUE_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "issue")) | length // 0')
-            UPDATED_WORKFLOW_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "workflow_dispatch")) | length // 0')
-            
-            echo "Updated counts - Total: $UPDATED_TOTAL_COUNT, Issue: $UPDATED_ISSUE_COUNT, Workflow: $UPDATED_WORKFLOW_COUNT"
-            
-            # 使用加密功能更新队列issue
-            BODY_TEMPLATE="## 构建队列管理\n\n**最后更新时间：** \$(date '+%Y-%m-%d %H:%M:%S')\n\n### 当前状态\n- **构建锁状态：** 空闲 🔓\n- **当前构建：** 无\n- **锁持有者：** 无\n- **版本：** $((CURRENT_VERSION + 1))\n\n### 构建队列\n- **当前数量：** $UPDATED_TOTAL_COUNT/5\n- **Issue触发：** $UPDATED_ISSUE_COUNT/3\n- **手动触发：** $UPDATED_WORKFLOW_COUNT/5\n\n---\n\n### 队列数据\n\`\`\`json\n__QUEUE_DATA__\n\`\`\`"
-            
-            # 直接更新队列issue（不再使用加密功能）
-            BODY=$(echo "$BODY_TEMPLATE" | sed "s|__QUEUE_DATA__|$UPDATED_QUEUE_DATA|g")
-            if update_queue_issue "$QUEUE_MANAGER_ISSUE" "$BODY"; then
-              echo "✅ Queue join successful on attempt $attempt"
-              
-              # 计算队列位置
-              QUEUE_POSITION=$(echo "$UPDATED_QUEUE_DATA" | \
-                jq -r --arg build_id "$CURRENT_BUILD_ID" \
-                '.queue | sort_by(.join_time) | map(.build_id) | index($build_id) // 0 | . + 1')
-              
-              # 根据触发类型设置队列限制
-              if [ "$TRIGGER_TYPE" = "issue" ]; then
-                QUEUE_LIMIT=3
-              else
-                QUEUE_LIMIT=5
-              fi
-              echo "QUEUE_POSITION=$QUEUE_POSITION" >> $GITHUB_ENV
-              
-              # 添加队列加入评论
-              QUEUE_JOIN_COMMENT="## 已加入队列
+            # 添加成功评论
+            SUCCESS_COMMENT="## ✅ 构建已加入队列
 
-              **队列位置：** $QUEUE_POSITION/$QUEUE_LIMIT (总队列)
-              **预计等待时间：** 约$((UPDATED_TOTAL_COUNT * 30))分钟
-              **状态：** 等待中 ⏳
-
-              **当前队列状态：**
-              - 总队列：$UPDATED_TOTAL_COUNT/5
-              - Issue触发：$UPDATED_ISSUE_COUNT/3
-              - 手动触发：$UPDATED_WORKFLOW_COUNT/5
-
-              **队列信息：**
-              - 加入时间：$(date '+%Y-%m-%d %H:%M:%S')
-              - 触发方式：$TRIGGER_TYPE
-              - 队列管理：Issue #$QUEUE_MANAGER_ISSUE"
-              
-              # 只在issue模式下发布评论
-              if [ "$TRIGGER_TYPE" = "issue" ]; then
-                # 获取原始issue编号
-                ORIGINAL_ISSUE_NUMBER=$(curl -s \
-                  -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                  -H "Accept: application/vnd.github.v3+json" \
-                  "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/jobs" | \
-                  jq -r '.jobs[0].steps[] | select(.name == "Get review workflow data") | .outputs.trigger_type // empty')
-                
-                if [ -n "$ORIGINAL_ISSUE_NUMBER" ]; then
-                  add_issue_comment "$ORIGINAL_ISSUE_NUMBER" "$QUEUE_JOIN_COMMENT"
-                fi
-              fi
-              
-              break
-            else
-              echo "❌ Queue join failed on attempt $attempt"
-              if [ "$attempt" -lt "$MAX_RETRIES" ]; then
-                echo "Retrying in $RETRY_DELAY seconds..."
-                sleep $RETRY_DELAY
-              else
-                echo "Max retries reached, exiting..."
-                exit 1
-              fi
+            **队列位置：** $QUEUE_POSITION/$QUEUE_LIMIT
+            **构建ID：** ${{ env.BUILD_ID }}
+            **标签：** $TAG
+            **客户：** $CUSTOMER
+            **标语：** $SLOGAN
+            **加入时间：** $CURRENT_TIME
+            
+            **状态：** 等待构建中 ⏳
+            **预计等待时间：** 约 $((QUEUE_POSITION * 30)) 分钟"
+            
+            # 获取原始issue编号
+            ORIGINAL_ISSUE_NUMBER="${{ env.BUILD_ID }}"
+            
+            if [ -n "$ORIGINAL_ISSUE_NUMBER" ]; then
+              add_issue_comment "$ORIGINAL_ISSUE_NUMBER" "$SUCCESS_COMMENT"
             fi
-          done 
+            
+            echo "join_success=true" >> $GITHUB_OUTPUT
+            echo "queue_position=$QUEUE_POSITION" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Failed to join queue"
+            echo "join_success=false" >> $GITHUB_OUTPUT
+            echo "queue_position=-1" >> $GITHUB_OUTPUT
+            exit 1
+          fi 
