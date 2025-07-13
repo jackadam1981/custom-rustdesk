@@ -69,21 +69,54 @@ extract_queue_json() {
   local decrypt_encrypted="${2:-false}"
   
   # 优先提取 ```json ... ``` 代码块
-  local json_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```json' | grep -v '```' | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  local json_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | sed '1d;$d')
+  json_data=$(echo "$json_data" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
   echo "DEBUG: Primary extraction result: '$json_data'" >&2
+  
+  # 自动补全大括号
+  if [[ -n "$json_data" && ! "$json_data" =~ ^\{ ]]; then
+    json_data="{$json_data"
+  fi
+  if [[ -n "$json_data" && ! "$json_data" =~ \}$ ]]; then
+    json_data="$json_data}"
+  fi
+  # 强制单行 JSON
+  if [ -n "$json_data" ]; then
+    json_data=$(echo "$json_data" | jq -c . 2>/dev/null || echo "")
+  fi
   
   # 如果失败，尝试只用 ``` 包裹的代码块
   if [ -z "$json_data" ] || ! echo "$json_data" | jq . > /dev/null 2>&1; then
     echo "⚠️ Primary JSON extraction failed, trying fallback for plain code block..." >&2
-    json_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```/,/```/p' | grep -v '```' | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    json_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```/,/```/p' | sed '1d;$d')
+    json_data=$(echo "$json_data" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
     echo "DEBUG: Fallback plain code block extraction result: '$json_data'" >&2
+    if [[ -n "$json_data" && ! "$json_data" =~ ^\{ ]]; then
+      json_data="{$json_data"
+    fi
+    if [[ -n "$json_data" && ! "$json_data" =~ \}$ ]]; then
+      json_data="$json_data}"
+    fi
+    if [ -n "$json_data" ]; then
+      json_data=$(echo "$json_data" | jq -c . 2>/dev/null || echo "")
+    fi
   fi
   
   # 如果还是失败，尝试第三种方法（保留原有逻辑）
   if [ -z "$json_data" ] || ! echo "$json_data" | jq . > /dev/null 2>&1; then
     echo "⚠️ Secondary JSON extraction failed, trying third method..." >&2
-    json_data=$(echo "$issue_content" | jq -r '.body' | grep -A 100 '```json' | grep -B 100 '```' | grep -v '```json' | grep -v '```' | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    json_data=$(echo "$issue_content" | jq -r '.body' | grep -A 100 '```json' | grep -B 100 '```' | grep -v '```json' | grep -v '```')
+    json_data=$(echo "$json_data" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
     echo "DEBUG: Third extraction result: '$json_data'" >&2
+    if [[ -n "$json_data" && ! "$json_data" =~ ^\{ ]]; then
+      json_data="{$json_data"
+    fi
+    if [[ -n "$json_data" && ! "$json_data" =~ \}$ ]]; then
+      json_data="$json_data}"
+    fi
+    if [ -n "$json_data" ]; then
+      json_data=$(echo "$json_data" | jq -c . 2>/dev/null || echo "")
+    fi
   fi
   
   # 如果还是失败，返回默认JSON
@@ -452,28 +485,32 @@ cleanup_queue_data() {
   local current_time=$(date '+%Y-%m-%d %H:%M:%S')
   local current_version=$(echo "$cleaned_queue_data" | jq -r '.version')
   
+  # 清理队列数据模板
   local updated_body="## 构建队列管理
-  
-  **最后更新时间：** $current_time
-  ### 当前状态
-   **构建锁状态：** 空闲 🔓 (已清理)
-   **当前构建：** 无
-   **锁持有者：** 无
-   **版本：** $current_version
-  
-  ### 构建队列
-   **当前数量：** $cleaned_total_count/5
-   **Issue触发：** $cleaned_issue_count/3
-   **手动触发：** $cleaned_workflow_count/5
-  
-  ### 清理记录
-  **清理时间：** $current_time
-  **清理原因：**
-  $cleanup_reason_text
-  ### 队列数据
-  \`\`\`json
-  $cleaned_queue_data
-  \`\`\`"
+
+**最后更新时间：** $current_time
+
+### 当前状态
+- **构建锁状态：** 空闲 🔓 (已清理)
+- **当前构建：** 无
+- **锁持有者：** 无
+- **版本：** $current_version
+
+### 构建队列
+- **当前数量：** $cleaned_total_count/5
+- **Issue触发：** $cleaned_issue_count/3
+- **手动触发：** $cleaned_workflow_count/5
+
+---
+
+### 清理记录
+**清理时间：** $current_time
+**清理原因：**
+$cleanup_reason_text
+### 队列数据
+\`\`\`json
+$cleaned_queue_data
+\`\`\`"
   
   # 尝试更新队列管理issue
   if update_queue_issue "$queue_issue_number" "$updated_body"; then
@@ -541,6 +578,7 @@ update_queue_status() {
   local current_time=$(date '+%Y-%m-%d %H:%M:%S')
   local current_version=$(echo "$updated_queue_data" | jq -r '.version')
   
+  # 更新队列状态模板
   local updated_body="## 构建队列管理
 
 **最后更新时间：** $current_time
