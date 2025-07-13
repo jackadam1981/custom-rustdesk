@@ -1,0 +1,78 @@
+name: 06 - Build
+
+on:
+  workflow_call:
+    inputs:
+      project_name:
+        description: "Project name to build"
+        required: true
+        type: string
+      project_url:
+        description: "Project URL"
+        required: true
+        type: string
+      build_script:
+        description: "Build script to execute"
+        required: true
+        type: string
+      build_timeout:
+        description: "Build timeout in minutes"
+        required: false
+        type: number
+        default: 60
+
+
+jobs:
+  build:
+    name: Build Project
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.build_timeout }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup build environment
+        run: |
+          echo "Setting up build environment for ${{ inputs.project_name }}"
+          echo "Project URL: ${{ inputs.project_url }}"
+          echo "Build script: ${{ inputs.build_script }}"
+          
+      - name: Execute build script
+        run: |
+          echo "Starting build process..."
+          echo "Build script: ${{ inputs.build_script }}"
+          
+          # Execute the build script
+          eval "${{ inputs.build_script }}"
+          
+          echo "Build completed successfully"
+          
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts-${{ inputs.project_name }}
+          path: |
+            build/
+            dist/
+            target/
+            *.exe
+            *.dmg
+            *.deb
+            *.rpm
+            *.zip
+            *.tar.gz
+          retention-days: 30
+          
+      - name: Notify build completion
+        run: |
+          echo "Build workflow completed for ${{ inputs.project_name }}"
+          echo "Artifacts have been uploaded"
+          
+      - name: Update queue status
+        uses: ./.github/workflows/shared/github-utils
+        with:
+          action: update_queue_status
+          project_name: ${{ inputs.project_name }}
+          status: completed
+ 

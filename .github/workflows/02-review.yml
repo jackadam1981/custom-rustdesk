@@ -1,0 +1,297 @@
+name: 02 - Review and Validation
+
+on:
+  workflow_run:
+    workflows: ["01 - Trigger and Parameter Extraction"]
+    types: [completed]
+
+# 添加权限配置
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    outputs:
+      review_output: ${{ toJson(steps.output.outputs.data) }}
+      build_approved: ${{ steps.output.outputs.build_approved }}
+    steps:
+      - name: Get trigger workflow data
+        id: get_data
+        run: |
+          # 获取触发工作流的数据
+          TRIGGER_RUN_ID="${{ github.event.workflow_run.id }}"
+          
+          # 获取触发工作流的输出
+          TRIGGER_OUTPUT=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/$TRIGGER_RUN_ID/jobs" | \
+            jq -r '.jobs[0].steps[] | select(.name == "Setup framework") | .outputs.trigger_output // empty')
+          
+          if [ -z "$TRIGGER_OUTPUT" ]; then
+            echo "❌ Failed to get trigger workflow data"
+            exit 1
+          fi
+          
+          echo "TRIGGER_OUTPUT=$TRIGGER_OUTPUT" >> $GITHUB_ENV
+          echo "trigger_output=$TRIGGER_OUTPUT" >> $GITHUB_OUTPUT
+      
+      - name: Extract data
+        id: extract
+        run: |
+          # 从trigger阶段获取数据
+          INPUT='${{ env.TRIGGER_OUTPUT }}'
+          
+          # 验证JSON格式
+          echo "Validating input JSON format..."
+          echo "$INPUT" | jq . > /dev/null
+          echo "Input JSON validation passed"
+          
+          # 提取服务器地址
+          RENDEZVOUS_SERVER=$(echo "$INPUT" | jq -r '.rendezvous_server')
+          API_SERVER=$(echo "$INPUT" | jq -r '.api_server')
+          EMAIL=$(echo "$INPUT" | jq -r '.email')
+          
+          # 设置环境变量供后续步骤使用
+          echo "RENDEZVOUS_SERVER=$RENDEZVOUS_SERVER" >> $GITHUB_ENV
+          echo "API_SERVER=$API_SERVER" >> $GITHUB_ENV
+          echo "EMAIL=$EMAIL" >> $GITHUB_ENV
+          echo "CURRENT_DATA=$INPUT" >> $GITHUB_ENV
+          
+          # 验证JSON格式
+          echo "Validating JSON format..."
+          echo "$INPUT" | jq . > /dev/null
+          echo "JSON validation passed"
+      
+      - name: Auto reject invalid server parameters
+        run: |
+          # 加载共享工具函数
+          source .github/workflows/shared/github-utils.yml
+          
+          # 验证服务器参数
+          AUTO_REJECT_REASON=$(validate_server_parameters "$RENDEZVOUS_SERVER" "$API_SERVER" "$EMAIL")
+          
+          if [ $? -ne 0 ]; then
+            echo "自动拒绝原因：$AUTO_REJECT_REASON"
+            
+            REJECT_COMMENT="## ❌ 构建被自动拒绝
+
+            **拒绝原因：**
+            $AUTO_REJECT_REASON
+
+            **时间：** $(date '+%Y-%m-%d %H:%M:%S')
+            请检查参数后重新提交issue。"
+            
+            # 获取原始issue编号
+            ORIGINAL_ISSUE_NUMBER=$(curl -s \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/jobs" | \
+              jq -r '.jobs[0].steps[] | select(.name == "Setup framework") | .outputs.build_id // empty')
+            
+            if [ -n "$ORIGINAL_ISSUE_NUMBER" ]; then
+              add_issue_comment "$ORIGINAL_ISSUE_NUMBER" "$REJECT_COMMENT"
+            fi
+            
+            echo "BUILD_REJECTED=true" >> $GITHUB_ENV
+            exit 0
+          else
+            echo "✅ All parameter validations passed"
+          fi
+
+      - name: Determine review requirement
+        if: env.BUILD_REJECTED != 'true'
+        run: |
+          # 默认需要审核
+          NEED_REVIEW=true
+
+          # 仓库所有者免审核
+          if [ "${{ github.actor }}" = "${{ github.repository_owner }}" ]; then
+            echo "Repo owner detected, skipping review."
+            NEED_REVIEW=false
+          fi
+
+          # 加载共享工具函数
+          source .github/workflows/shared/github-utils.yml
+          
+          # 检查是否为私有IP地址
+          RENDEZVOUS_PRIVATE=false
+          API_PRIVATE=false
+          
+          echo "Checking Rendezvous Server: $RENDEZVOUS_SERVER"
+          if check_private_ip "$RENDEZVOUS_SERVER"; then
+            RENDEZVOUS_PRIVATE=true
+            echo "Rendezvous server is private IP: $RENDEZVOUS_SERVER"
+          else
+            echo "Rendezvous server is public IP or domain: $RENDEZVOUS_SERVER"
+          fi
+          
+          echo "Checking API Server: $API_SERVER"
+          if check_private_ip "$API_SERVER"; then
+            API_PRIVATE=true
+            echo "API server is private IP: $API_SERVER"
+          else
+            echo "API server is public IP or domain: $API_SERVER"
+          fi
+          
+          # 判断是否需要审核
+          if [ "$NEED_REVIEW" = "false" ]; then
+            echo "Skipping review due to repo owner or private IP check."
+          else
+            if [ "$RENDEZVOUS_PRIVATE" = "true" ] && [ "$API_PRIVATE" = "true" ]; then
+              NEED_REVIEW=false
+              echo "Both servers are private IPs - no review needed"
+            else
+              NEED_REVIEW=true
+              echo "At least one server is public IP - review required"
+            fi
+          fi
+          
+          # 设置审核标记到环境变量，供后续步骤使用
+          echo "NEED_REVIEW=$NEED_REVIEW" >> $GITHUB_ENV
+      
+      - name: Handle review process
+        if: env.NEED_REVIEW == 'true' && env.BUILD_REJECTED != 'true'
+        run: |
+          echo "Review required. Starting review process..."
+          
+          # 获取原始issue编号
+          ORIGINAL_ISSUE_NUMBER=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/jobs" | \
+            jq -r '.jobs[0].steps[] | select(.name == "Setup framework") | .outputs.build_id // empty')
+          
+          # 在issue中添加审核状态
+          REVIEW_COMMENT="## 🔍 审核状态
+
+          **需要审核原因：** 检测到公网IP地址或域名
+          - Rendezvous Server: $RENDEZVOUS_SERVER
+          - API Server: $API_SERVER
+
+          **审核要求：** 请管理员回复 '同意构建' 或 '拒绝构建'
+
+          **状态：** 等待审核中 ⏳
+          **时间：** $(date '+%Y-%m-%d %H:%M:%S')"
+          
+          # 加载共享工具函数
+          source .github/workflows/shared/github-utils.yml
+          
+          if [ -n "$ORIGINAL_ISSUE_NUMBER" ]; then
+            add_issue_comment "$ORIGINAL_ISSUE_NUMBER" "$REVIEW_COMMENT"
+          fi
+          
+          # 循环检查审核回复
+          START_TIME=$(date +%s)
+          TIMEOUT=21600  # 6小时超时
+          APPROVED=false
+          REJECTED=false
+          
+          while [ $(($(date +%s) - START_TIME)) -lt $TIMEOUT ]; do
+            echo "Checking for admin approval... ($(($(date +%s) - START_TIME))s elapsed)"
+            
+            # 获取issue的最新评论
+            COMMENTS=$(curl -s \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/issues/$ORIGINAL_ISSUE_NUMBER/comments")
+            
+            # 检查是否有管理员回复
+            # 获取仓库所有者和管理员列表
+            REPO_OWNER="${{ github.repository_owner }}"
+            
+            # 检查是否有管理员回复（包括仓库所有者）
+            if echo "$COMMENTS" | jq -e --arg owner "$REPO_OWNER" '.[] | select(.user.login == $owner or .user.login == "admin" or .user.login == "管理员用户名") | select(.body | contains("同意构建"))' > /dev/null; then
+              APPROVED=true
+              break
+            fi
+            
+            if echo "$COMMENTS" | jq -e --arg owner "$REPO_OWNER" '.[] | select(.user.login == $owner or .user.login == "admin" or .user.login == "管理员用户名") | select(.body | contains("拒绝构建"))' > /dev/null; then
+              REJECTED=true
+              break
+            fi
+            
+            # 调试：输出最新的评论信息
+            echo "Latest comments:"
+            echo "$COMMENTS" | jq -r '.[-3:] | .[] | "User: \(.user.login), Body: \(.body[0:100])..."'
+            
+            # 等待30秒后再次检查
+            sleep 30
+          done
+          
+          if [ "$APPROVED" = true ]; then
+            echo "Admin approval received"
+            # 添加审核通过评论
+            APPROVAL_COMMENT="## ✅ 审核通过
+            **状态：** 审核已通过
+            **审核人：** 管理员
+            **时间：** $(date '+%Y-%m-%d %H:%M:%S')
+            构建将继续进行..."
+            
+            if [ -n "$ORIGINAL_ISSUE_NUMBER" ]; then
+              add_issue_comment "$ORIGINAL_ISSUE_NUMBER" "$APPROVAL_COMMENT"
+            fi
+          elif [ "$REJECTED" = true ]; then
+            echo "Build rejected by admin"
+            
+            # 添加拒绝评论
+            REJECT_COMMENT="## ❌ 构建被拒绝
+            **状态：** 构建已被管理员拒绝
+            **时间：** $(date '+%Y-%m-%d %H:%M:%S')
+            构建流程已终止。如需重新构建，请重新提交issue。"
+            
+            if [ -n "$ORIGINAL_ISSUE_NUMBER" ]; then
+              add_issue_comment "$ORIGINAL_ISSUE_NUMBER" "$REJECT_COMMENT"
+            fi
+            
+            echo "Build rejected by admin - setting build_approved to false"
+            # 设置构建被拒绝标志
+            echo "BUILD_REJECTED=true" >> $GITHUB_ENV
+            exit 0
+          else
+            echo "Review timeout after 6 hours"
+            # 添加超时评论
+            TIMEOUT_COMMENT="## ⏰ 审核超时
+            **状态：** 审核超时（6小时）
+            **时间：** $(date '+%Y-%m-%d %H:%M:%S')
+            构建将自动终止。如需重新构建，请重新提交issue。"
+            
+            if [ -n "$ORIGINAL_ISSUE_NUMBER" ]; then
+              add_issue_comment "$ORIGINAL_ISSUE_NUMBER" "$TIMEOUT_COMMENT"
+            fi
+            
+            exit 1
+          fi
+
+      - name: Output data
+        if: env.BUILD_REJECTED != 'true'
+        id: output
+        run: |
+          # 重新获取原始数据并确保JSON格式正确
+          INPUT='${{ env.CURRENT_DATA }}'
+          
+          # 确保输出的是有效的JSON格式
+          echo "data=$INPUT" >> $GITHUB_OUTPUT
+          
+          # 根据标志设置构建批准状态
+          if [ "${{ env.BUILD_REJECTED }}" = "true" ]; then
+            echo "build_approved=false" >> $GITHUB_OUTPUT
+            echo "Build was rejected by admin"
+          elif [ "${{ env.BUILD_TIMEOUT }}" = "true" ]; then
+            echo "build_approved=false" >> $GITHUB_OUTPUT
+            echo "Build timed out during review"
+          else
+            echo "build_approved=true" >> $GITHUB_OUTPUT
+            echo "Build was approved or no review needed"
+          fi
+          
+          # 显示输出信息
+          echo "Review output: $INPUT"
+          
+          # 验证输出的JSON格式
+          echo "Validating output JSON format..."
+          echo "$INPUT" | jq . > /dev/null
+          echo "Output JSON validation passed" 

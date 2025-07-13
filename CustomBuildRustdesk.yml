@@ -303,11 +303,11 @@ jobs:
             echo "自动拒绝原因：$AUTO_REJECT_REASON"
             REJECT_COMMENT="## ❌ 构建被自动拒绝
 
-            **拒绝原因：**
-            $AUTO_REJECT_REASON
+          **拒绝原因：**
+          $AUTO_REJECT_REASON
 
-            **时间：** $(date '+%Y-%m-%d %H:%M:%S')
-            请检查参数后重新提交issue。"
+          **时间：** $(date '+%Y-%m-%d %H:%M:%S')
+          请检查参数后重新提交issue。"
             
             curl -X POST \
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
@@ -614,32 +614,8 @@ jobs:
               echo "❌ JSON parsing failed, resetting queue template"
               RESET_QUEUE_DATA='{"queue":[],"run_id":null,"version":1}'
               
-              # 重置issue模板
-              RESET_BODY="## 构建队列管理
-
-              **最后更新时间：** $(date '+%Y-%m-%d %H:%M:%S')
-
-              ### 当前状态
-              - **构建锁状态：** 空闲 🔓
-              - **当前构建：** 无
-              - **锁持有者：** 无
-              - **版本：** 1
-
-              ### 构建队列
-              - **当前数量：** 0/5
-              - **Issue触发：** 0/3
-              - **手动触发：** 0/5
-
-              ---
-
-              ### 重置记录
-              **重置时间：** $(date '+%Y-%m-%d %H:%M:%S')
-              **重置原因：** JSON解析失败，重置为默认模板
-
-              ### 队列数据
-              \`\`\`json
-              $RESET_QUEUE_DATA
-              \`\`\`"
+                            # 重置issue模板 - 使用简单的字符串拼接
+              RESET_BODY="## 构建队列管理\n\n**最后更新时间：** \$(date '+%Y-%m-%d %H:%M:%S')\n\n### 当前状态\n- **构建锁状态：** 空闲 🔓\n- **当前构建：** 无\n- **锁持有者：** 无\n- **版本：** 1\n\n### 构建队列\n- **当前数量：** 0/5\n- **Issue触发：** 0/3\n- **手动触发：** 0/5\n\n---\n\n### 重置记录\n**重置时间：** \$(date '+%Y-%m-%d %H:%M:%S')\n**重置原因：** JSON解析失败，重置为默认模板\n\n### 队列数据\n\`\`\`json\n$RESET_QUEUE_DATA\n\`\`\`"
               
               UPDATE_RESPONSE=$(curl -s -X PATCH \
                 -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
@@ -818,32 +794,33 @@ jobs:
               done
               
               # 更新队列管理issue
-              UPDATED_BODY="## 构建队列管理
+              UPDATED_BODY: |
+                ## 构建队列管理
 
-              **最后更新时间：** $(date '+%Y-%m-%d %H:%M:%S')
+                **最后更新时间：** $(date '+%Y-%m-%d %H:%M:%S')
 
-              ### 当前状态
-              - **构建锁状态：** 空闲 🔓 (已清理)
-              - **当前构建：** 无
-              - **锁持有者：** 无
-              - **版本：** $(echo "$CLEANED_QUEUE_DATA" | jq -r '.version')
+                ### 当前状态
+                - **构建锁状态：** 空闲 🔓 (已清理)
+                - **当前构建：** 无
+                - **锁持有者：** 无
+                - **版本：** $(echo "$CLEANED_QUEUE_DATA" | jq -r '.version')
 
-              ### 构建队列
-              - **当前数量：** $CLEANED_TOTAL_COUNT/5
-              - **Issue触发：** $CLEANED_ISSUE_COUNT/3
-              - **手动触发：** $CLEANED_WORKFLOW_COUNT/5
+                ### 构建队列
+                - **当前数量：** $CLEANED_TOTAL_COUNT/5
+                - **Issue触发：** $CLEANED_ISSUE_COUNT/3
+                - **手动触发：** $CLEANED_WORKFLOW_COUNT/5
 
-              ---
+                ---
 
-              ### 清理记录
-              **清理时间：** $(date '+%Y-%m-%d %H:%M:%S')
-              **清理原因：**
-              $CLEANUP_REASON_TEXT
+                ### 清理记录
+                **清理时间：** $(date '+%Y-%m-%d %H:%M:%S')
+                **清理原因：**
+                $CLEANUP_REASON_TEXT
 
-              ### 队列数据
-              ```json
-              $CLEANED_QUEUE_DATA
-              ```"
+                ### 队列数据
+                ```json
+                $CLEANED_QUEUE_DATA
+                ```
               
               # 尝试更新队列管理issue
               UPDATE_RESPONSE=$(curl -s -X PATCH \
@@ -1184,27 +1161,28 @@ jobs:
             echo "Updated counts - Total: $UPDATED_TOTAL_COUNT, Issue: $UPDATED_ISSUE_COUNT, Workflow: $UPDATED_WORKFLOW_COUNT"
             
             # 更新队列管理issue
-            UPDATED_BODY="## 构建队列管理
+            UPDATED_BODY: |
+              ## 构建队列管理
 
-            **最后更新时间：** $(date '+%Y-%m-%d %H:%M:%S')
+              **最后更新时间：** $(date '+%Y-%m-%d %H:%M:%S')
 
-            ### 当前状态
-            - **构建锁状态：** 空闲 🔓
-            - **当前构建：** 无
-            - **锁持有者：** 无
-            - **版本：** $((CURRENT_VERSION + 1))
+              ### 当前状态
+              - **构建锁状态：** 空闲 🔓
+              - **当前构建：** 无
+              - **锁持有者：** 无
+              - **版本：** $((CURRENT_VERSION + 1))
 
-            ### 构建队列
-            - **当前数量：** $UPDATED_TOTAL_COUNT/5
-            - **Issue触发：** $UPDATED_ISSUE_COUNT/3
-            - **手动触发：** $UPDATED_WORKFLOW_COUNT/5
+              ### 构建队列
+              - **当前数量：** $UPDATED_TOTAL_COUNT/5
+              - **Issue触发：** $UPDATED_ISSUE_COUNT/3
+              - **手动触发：** $UPDATED_WORKFLOW_COUNT/5
 
-            ---
+              ---
 
-            ### 队列数据
-            \`\`\`json
-            $UPDATED_QUEUE_DATA
-            \`\`\`"
+              ### 队列数据
+              ```json
+              $UPDATED_QUEUE_DATA
+              ```
             
             # 在写入issue前，强制单行JSON
             UPDATED_QUEUE_DATA=$(echo "$UPDATED_QUEUE_DATA" | jq -c .)
@@ -1383,27 +1361,28 @@ jobs:
                   UPDATED_WORKFLOW_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "workflow_dispatch")) | length // 0')
                   
                   # 更新队列管理issue
-                  UPDATED_BODY="## 构建队列管理
+                  UPDATED_BODY: |
+                    ## 构建队列管理
 
-                  **最后更新时间：** $(date '+%Y-%m-%d %H:%M:%S')
+                    **最后更新时间：** $(date '+%Y-%m-%d %H:%M:%S')
 
-                  ### 当前状态
-                  - **构建锁状态：** 占用 🔒 (run_id: ${{ github.run_id }})
-                  - **当前构建：** 队列首位
-                  - **锁持有者：** 运行ID: ${{ github.run_id }}
-                  - **版本：** $((CURRENT_VERSION + 1))
+                    ### 当前状态
+                    - **构建锁状态：** 占用 🔒 (run_id: ${{ github.run_id }})
+                    - **当前构建：** 队列首位
+                    - **锁持有者：** 运行ID: ${{ github.run_id }}
+                    - **版本：** $((CURRENT_VERSION + 1))
 
-                  ### 构建队列
-                  - **当前数量：** $UPDATED_TOTAL_COUNT/5
-                  - **Issue触发：** $UPDATED_ISSUE_COUNT/3
-                  - **手动触发：** $UPDATED_WORKFLOW_COUNT/5
+                    ### 构建队列
+                    - **当前数量：** $UPDATED_TOTAL_COUNT/5
+                    - **Issue触发：** $UPDATED_ISSUE_COUNT/3
+                    - **手动触发：** $UPDATED_WORKFLOW_COUNT/5
 
-                  ---
+                    ---
 
-                  ### 队列数据
-                  \`\`\`json
-                  $UPDATED_QUEUE_DATA
-                  \`\`\`"
+                    ### 队列数据
+                    ```json
+                    $UPDATED_QUEUE_DATA
+                    ```
                   
                   UPDATE_RESPONSE=$(curl -s -X PATCH \
                     -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
@@ -1563,27 +1542,28 @@ jobs:
             echo "Updated counts after leaving - Total: $UPDATED_TOTAL_COUNT, Issue: $UPDATED_ISSUE_COUNT, Workflow: $UPDATED_WORKFLOW_COUNT"
             
             # 更新队列管理issue - 保持锁状态，因为构建正在进行
-            UPDATED_BODY="## 构建队列管理
+            UPDATED_BODY: |
+              ## 构建队列管理
 
-            **最后更新时间：** $(date '+%Y-%m-%d %H:%M:%S')
+              **最后更新时间：** $(date '+%Y-%m-%d %H:%M:%S')
 
-            ### 当前状态
-            - **构建锁状态：** 占用 🔒 (构建中 - run_id: ${{ github.run_id }})
-            - **当前构建：** 队列首位
-            - **锁持有者：** 运行ID: ${{ github.run_id }}
-            - **版本：** $((CURRENT_VERSION + 1))
+              ### 当前状态
+              - **构建锁状态：** 占用 🔒 (构建中 - run_id: ${{ github.run_id }})
+              - **当前构建：** 队列首位
+              - **锁持有者：** 运行ID: ${{ github.run_id }}
+              - **版本：** $((CURRENT_VERSION + 1))
 
-            ### 构建队列
-            - **当前数量：** $UPDATED_TOTAL_COUNT/5
-            - **Issue触发：** $UPDATED_ISSUE_COUNT/3
-            - **手动触发：** $UPDATED_WORKFLOW_COUNT/5
+              ### 构建队列
+              - **当前数量：** $UPDATED_TOTAL_COUNT/5
+              - **Issue触发：** $UPDATED_ISSUE_COUNT/3
+              - **手动触发：** $UPDATED_WORKFLOW_COUNT/5
 
-            ---
+              ---
 
-            ### 队列数据
-            \`\`\`json
-            $UPDATED_QUEUE_DATA
-            \`\`\`"
+              ### 队列数据
+              ```json
+              $UPDATED_QUEUE_DATA
+              ```
             
             # 在写入issue前，强制单行JSON
             UPDATED_QUEUE_DATA=$(echo "$UPDATED_QUEUE_DATA" | jq -c .)
@@ -1770,27 +1750,28 @@ jobs:
               UPDATED_WORKFLOW_COUNT=$(echo "$UPDATED_QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "workflow_dispatch")) | length // 0')
               
               # 更新队列管理issue
-              UPDATED_BODY="## 构建队列管理
+              UPDATED_BODY: |
+                ## 构建队列管理
 
-              **最后更新时间：** $(date '+%Y-%m-%d %H:%M:%S')
+                **最后更新时间：** $(date '+%Y-%m-%d %H:%M:%S')
 
-              ### 当前状态
-              - **构建锁状态：** 空闲 🔓
-              - **当前构建：** 无
-              - **锁持有者：** 无
-              - **版本：** $((CURRENT_VERSION + 1))
+                ### 当前状态
+                - **构建锁状态：** 空闲 🔓
+                - **当前构建：** 无
+                - **锁持有者：** 无
+                - **版本：** $((CURRENT_VERSION + 1))
 
-              ### 构建队列
-              - **当前数量：** $UPDATED_TOTAL_COUNT/5
-              - **Issue触发：** $UPDATED_ISSUE_COUNT/3
-              - **手动触发：** $UPDATED_WORKFLOW_COUNT/5
+                ### 构建队列
+                - **当前数量：** $UPDATED_TOTAL_COUNT/5
+                - **Issue触发：** $UPDATED_ISSUE_COUNT/3
+                - **手动触发：** $UPDATED_WORKFLOW_COUNT/5
 
-              ---
+                ---
 
-              ### 队列数据
-              \`\`\`json
-              $UPDATED_QUEUE_DATA
-              \`\`\`"
+                ### 队列数据
+                ```json
+                $UPDATED_QUEUE_DATA
+                ```
               
               UPDATE_RESPONSE=$(curl -s -X PATCH \
                 -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \

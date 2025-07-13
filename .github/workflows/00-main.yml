@@ -1,0 +1,201 @@
+# 主工作流：构建定制的Rustdesk客户端
+name: 00 - Build Custom Rustdesk Client
+
+on:
+  # 处理issue触发
+  issues:
+    types: [opened, edited, reopened]
+    
+  # 处理手动触发
+  workflow_dispatch:
+    inputs:
+      project_name:
+        description: "项目名称"
+        required: true
+        type: string
+      project_url:
+        description: "项目URL"
+        required: true
+        type: string
+      rendezvous_server:
+        description: "Rendezvous服务器地址"
+        required: true
+        type: string
+      api_server:
+        description: "API服务器地址"
+        required: true
+        type: string
+      email:
+        description: "联系邮箱（可选）"
+        required: false
+        type: string
+      build_script:
+        description: "构建脚本"
+        required: true
+        type: string
+        default: "echo 'Default build script'"
+
+jobs:
+  # 第一阶段：触发和参数提取
+  trigger:
+    name: Trigger and Extract Parameters
+    runs-on: ubuntu-latest
+    outputs:
+      project_name: ${{ steps.extract.outputs.project_name }}
+      project_url: ${{ steps.extract.outputs.project_url }}
+      rendezvous_server: ${{ steps.extract.outputs.rendezvous_server }}
+      api_server: ${{ steps.extract.outputs.api_server }}
+      email: ${{ steps.extract.outputs.email }}
+      build_script: ${{ steps.extract.outputs.build_script }}
+      trigger_type: ${{ steps.extract.outputs.trigger_type }}
+      issue_number: ${{ steps.extract.outputs.issue_number }}
+      should_proceed: ${{ steps.extract.outputs.should_proceed }}
+    steps:
+      - name: Call trigger workflow
+        uses: ./.github/workflows/01-trigger
+        id: trigger
+        
+      - name: Extract parameters
+        id: extract
+        run: |
+          # 从trigger工作流的输出中提取参数
+          echo "project_name=${{ steps.trigger.outputs.project_name }}" >> $GITHUB_OUTPUT
+          echo "project_url=${{ steps.trigger.outputs.project_url }}" >> $GITHUB_OUTPUT
+          echo "rendezvous_server=${{ steps.trigger.outputs.rendezvous_server }}" >> $GITHUB_OUTPUT
+          echo "api_server=${{ steps.trigger.outputs.api_server }}" >> $GITHUB_OUTPUT
+          echo "email=${{ steps.trigger.outputs.email }}" >> $GITHUB_OUTPUT
+          echo "build_script=${{ steps.trigger.outputs.build_script }}" >> $GITHUB_OUTPUT
+          echo "trigger_type=${{ steps.trigger.outputs.trigger_type }}" >> $GITHUB_OUTPUT
+          echo "issue_number=${{ steps.trigger.outputs.issue_number }}" >> $GITHUB_OUTPUT
+          echo "should_proceed=${{ steps.trigger.outputs.should_proceed }}" >> $GITHUB_OUTPUT
+
+  # 第二阶段：审查和验证
+  review:
+    name: Review and Validate
+    runs-on: ubuntu-latest
+    needs: trigger
+    if: needs.trigger.outputs.should_proceed == 'true'
+    outputs:
+      review_passed: ${{ steps.review.outputs.review_passed }}
+      review_message: ${{ steps.review.outputs.review_message }}
+    steps:
+      - name: Call review workflow
+        uses: ./.github/workflows/02-review
+        id: review
+
+  # 第三阶段：队列清理（定期执行）
+  queue-cleanup:
+    name: Queue Cleanup
+    runs-on: ubuntu-latest
+    needs: [trigger, review]
+    if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.review_passed == 'true'
+    steps:
+      - name: Call queue cleanup workflow
+        uses: ./.github/workflows/03-queue-cleanup
+
+  # 第四阶段：加入队列
+  queue-join:
+    name: Join Queue
+    runs-on: ubuntu-latest
+    needs: [trigger, review, queue-cleanup]
+    if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.review_passed == 'true'
+    outputs:
+      join_success: ${{ steps.join.outputs.join_success }}
+      queue_position: ${{ steps.join.outputs.queue_position }}
+    steps:
+      - name: Call queue join workflow
+        uses: ./.github/workflows/04-queue-join
+        id: join
+
+  # 第五阶段：等待构建锁
+  queue-wait:
+    name: Wait for Build Lock
+    runs-on: ubuntu-latest
+    needs: [trigger, review, queue-cleanup, queue-join]
+    if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.review_passed == 'true' && needs.queue-join.outputs.join_success == 'true'
+    outputs:
+      lock_acquired: ${{ steps.wait.outputs.lock_acquired }}
+    steps:
+      - name: Call queue wait workflow
+        uses: ./.github/workflows/05-queue-wait
+        id: wait
+
+  # 第六阶段：执行构建
+  build:
+    name: Execute Build
+    runs-on: ubuntu-latest
+    needs: [trigger, review, queue-cleanup, queue-join, queue-wait]
+    if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.review_passed == 'true' && needs.queue-join.outputs.join_success == 'true' && needs.queue-wait.outputs.lock_acquired == 'true'
+    outputs:
+      build_status: ${{ steps.build.outputs.build_status }}
+      build_artifacts: ${{ steps.build.outputs.build_artifacts }}
+      error_message: ${{ steps.build.outputs.error_message }}
+    steps:
+      - name: Call build workflow
+        uses: ./.github/workflows/06-build
+        with:
+          project_name: ${{ needs.trigger.outputs.project_name }}
+          project_url: ${{ needs.trigger.outputs.project_url }}
+          build_script: ${{ needs.trigger.outputs.build_script }}
+          build_timeout: 60
+        id: build
+
+  # 第七阶段：完成处理
+  finish:
+    name: Finish Process
+    runs-on: ubuntu-latest
+    needs: [trigger, review, queue-cleanup, queue-join, queue-wait, build]
+    if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.review_passed == 'true' && needs.queue-join.outputs.join_success == 'true' && needs.queue-wait.outputs.lock_acquired == 'true'
+    steps:
+      - name: Call finish workflow
+        uses: ./.github/workflows/07-finish
+        with:
+          project_name: ${{ needs.trigger.outputs.project_name }}
+          project_url: ${{ needs.trigger.outputs.project_url }}
+          build_status: ${{ needs.build.outputs.build_status }}
+          build_artifacts: ${{ needs.build.outputs.build_artifacts }}
+          error_message: ${{ needs.build.outputs.error_message }}
+
+  # 错误处理：当任何阶段失败时
+  error-handler:
+    name: Error Handler
+    runs-on: ubuntu-latest
+    needs: [trigger, review, queue-cleanup, queue-join, queue-wait, build, finish]
+    if: |
+      always() && (
+        needs.trigger.outputs.should_proceed == 'false' ||
+        (needs.review.outputs.review_passed == 'false' && needs.review.result != 'skipped') ||
+        (needs.queue-join.outputs.join_success == 'false' && needs.queue-join.result != 'skipped') ||
+        (needs.queue-wait.outputs.lock_acquired == 'false' && needs.queue-wait.result != 'skipped') ||
+        needs.build.result == 'failure' ||
+        needs.finish.result == 'failure'
+      )
+    steps:
+      - name: Handle errors
+        run: |
+          echo "构建队列系统执行过程中出现错误"
+          echo "请检查相关阶段的输出以获取详细信息"
+          
+          if [ "${{ needs.trigger.outputs.should_proceed }}" = "false" ]; then
+            echo "❌ 触发阶段失败：参数提取或验证失败"
+          fi
+          
+          if [ "${{ needs.review.outputs.review_passed }}" = "false" ]; then
+            echo "❌ 审查阶段失败：${{ needs.review.outputs.review_message }}"
+          fi
+          
+          if [ "${{ needs.queue-join.outputs.join_success }}" = "false" ]; then
+            echo "❌ 队列加入失败：无法加入构建队列"
+          fi
+          
+          if [ "${{ needs.queue-wait.outputs.lock_acquired }}" = "false" ]; then
+            echo "❌ 等待构建锁失败：超时或队列异常"
+          fi
+          
+          if [ "${{ needs.build.result }}" = "failure" ]; then
+            echo "❌ 构建阶段失败：构建过程出错"
+          fi
+          
+          if [ "${{ needs.finish.result }}" = "failure" ]; then
+            echo "❌ 完成阶段失败：后处理过程出错"
+          fi 

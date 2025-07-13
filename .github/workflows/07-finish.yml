@@ -1,0 +1,116 @@
+name: 07 - Finish
+
+on:
+  workflow_call:
+    inputs:
+      project_name:
+        description: "Project name that completed build"
+        required: true
+        type: string
+      project_url:
+        description: "Project URL"
+        required: true
+        type: string
+      build_status:
+        description: "Build status (success/failure)"
+        required: true
+        type: string
+      build_artifacts:
+        description: "Build artifacts info"
+        required: false
+        type: string
+        default: ""
+      error_message:
+        description: "Error message if build failed"
+        required: false
+        type: string
+        default: ""
+
+
+jobs:
+  finish:
+    name: Finish Build Process
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup finish environment
+        run: |
+          echo "Setting up finish environment for ${{ inputs.project_name }}"
+          echo "Build status: ${{ inputs.build_status }}"
+          echo "Project URL: ${{ inputs.project_url }}"
+          
+      - name: Process build completion
+        run: |
+          echo "Processing build completion for ${{ inputs.project_name }}"
+          
+          if [ "${{ inputs.build_status }}" = "success" ]; then
+            echo "✅ Build completed successfully"
+            echo "Build artifacts: ${{ inputs.build_artifacts }}"
+          else
+            echo "❌ Build failed"
+            echo "Error message: ${{ inputs.error_message }}"
+          fi
+          
+      - name: Update queue status
+        uses: ./.github/workflows/shared/github-utils
+        with:
+          action: update_queue_status
+          project_name: ${{ inputs.project_name }}
+          status: ${{ inputs.build_status }}
+
+          
+      - name: Send completion notification
+        run: |
+          echo "Sending completion notification for ${{ inputs.project_name }}"
+          
+          timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+          
+          if [ "${{ inputs.build_status }}" = "success" ]; then
+            echo "## 🎉 构建完成通知" > notification.md
+            echo "" >> notification.md
+            echo "**项目：** ${{ inputs.project_name }}" >> notification.md
+            echo "**状态：** ✅ 成功" >> notification.md
+            echo "**完成时间：** $timestamp" >> notification.md
+            echo "**项目链接：** ${{ inputs.project_url }}" >> notification.md
+            echo "" >> notification.md
+            echo "### 构建产物" >> notification.md
+            echo "${{ inputs.build_artifacts }}" >> notification.md
+            echo "" >> notification.md
+            echo "---" >> notification.md
+            echo "*此通知由构建队列系统自动生成*" >> notification.md
+          else
+            echo "## ❌ 构建失败通知" > notification.md
+            echo "" >> notification.md
+            echo "**项目：** ${{ inputs.project_name }}" >> notification.md
+            echo "**状态：** ❌ 失败" >> notification.md
+            echo "**失败时间：** $timestamp" >> notification.md
+            echo "**项目链接：** ${{ inputs.project_url }}" >> notification.md
+            echo "" >> notification.md
+            echo "### 错误信息" >> notification.md
+            echo "${{ inputs.error_message }}" >> notification.md
+            echo "" >> notification.md
+            echo "---" >> notification.md
+            echo "*此通知由构建队列系统自动生成*" >> notification.md
+          fi
+          
+          cat notification.md
+          
+          # 这里可以添加发送通知的逻辑
+          # 例如：发送到Slack、钉钉、邮件等
+          
+      - name: Cleanup temporary files
+        run: |
+          echo "Cleaning up temporary files..."
+          rm -rf /tmp/build_*
+          rm -rf /tmp/cache_*
+          echo "Cleanup completed"
+          
+      - name: Final status update
+        run: |
+          echo "Final status update for ${{ inputs.project_name }}"
+          echo "Build process finished with status: ${{ inputs.build_status }}"
+          echo "Queue has been updated and lock released"
+          echo "All cleanup tasks completed" 
