@@ -3,7 +3,7 @@ name: 00 - Build Custom Rustdesk Client
 
 on:
   issues:
-    types: [opened, edited, reopened]
+    types: [opened]
   workflow_dispatch:
     inputs:
       tag:
