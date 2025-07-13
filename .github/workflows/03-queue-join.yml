@@ -433,6 +433,10 @@ jobs:
                 CURRENT_LOCK_RUN_ID=$(echo "$QUEUE_DATA" | jq -r '.run_id // null')
                 CURRENT_QUEUE=$(echo "$QUEUE_DATA" | jq -r '.queue // []')
                 
+                echo "DEBUG: QUEUE_DATA: $QUEUE_DATA"
+                echo "DEBUG: CURRENT_QUEUE: $CURRENT_QUEUE"
+                echo "$CURRENT_QUEUE" | jq .
+                
                 # 检查是否还在队列中
                 CURRENT_QUEUE_POSITION=$(echo "$CURRENT_QUEUE" | jq -r --arg build_id "${{ env.BUILD_ID }}" 'index(.[] | select(.build_id == $build_id)) + 1')
                 
