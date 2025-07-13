@@ -222,6 +222,10 @@ jobs:
                 QUEUE_MANAGER_CONTENT=$(get_queue_manager_content "$QUEUE_MANAGER_ISSUE")
                 QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
                 QUEUE=$(echo "$QUEUE_DATA" | jq -r '.queue // []')
+                
+                # 调试：输出清理后的数据
+                echo "After cleanup - QUEUE_DATA: $QUEUE_DATA"
+                echo "After cleanup - QUEUE: $QUEUE"
               else
                 echo "❌ Queue cleanup failed on attempt $attempt"
                 if [ "$attempt" -lt "$MAX_RETRIES" ]; then
@@ -234,6 +238,10 @@ jobs:
                   QUEUE_MANAGER_CONTENT=$(get_queue_manager_content "$QUEUE_MANAGER_ISSUE")
                   QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
                   QUEUE=$(echo "$QUEUE_DATA" | jq -r '.queue // []')
+                  
+                  # 调试：输出重置后的数据
+                  echo "After reset - QUEUE_DATA: $QUEUE_DATA"
+                  echo "After reset - QUEUE: $QUEUE"
                 fi
               fi
             else
@@ -244,10 +252,16 @@ jobs:
             echo "Joining build queue..."
             
             # 检查队列长度限制
-            QUEUE_LENGTH=$(echo "$QUEUE" | jq 'length')
+            QUEUE_LENGTH=$(echo "$QUEUE" | jq 'length // 0')
             QUEUE_LIMIT="${{ env.QUEUE_LIMIT }}"
             
             echo "Queue length: $QUEUE_LENGTH, Limit: $QUEUE_LIMIT"
+            
+            # 确保QUEUE_LENGTH是数字
+            if [ -z "$QUEUE_LENGTH" ] || ! [[ "$QUEUE_LENGTH" =~ ^[0-9]+$ ]]; then
+              QUEUE_LENGTH=0
+              echo "Fixed queue length to: $QUEUE_LENGTH"
+            fi
             
             if [ "$QUEUE_LENGTH" -ge "$QUEUE_LIMIT" ]; then
               echo "❌ Queue is full (limit: $QUEUE_LIMIT)"
@@ -295,10 +309,39 @@ jobs:
             
             # 从trigger数据中提取信息
             TRIGGER_DATA='${{ env.CURRENT_DATA }}'
-            TAG=$(echo "$TRIGGER_DATA" | jq -r '.tag')
-            CUSTOMER=$(echo "$TRIGGER_DATA" | jq -r '.customer')
-            CUSTOMER_LINK=$(echo "$TRIGGER_DATA" | jq -r '.customer_link')
-            SLOGAN=$(echo "$TRIGGER_DATA" | jq -r '.slogan')
+            
+            # 调试：输出TRIGGER_DATA
+            echo "TRIGGER_DATA: $TRIGGER_DATA"
+            
+            # 处理双重转义的JSON字符串
+            # 如果输入是字符串形式的JSON，需要先解析
+            if [[ "$TRIGGER_DATA" == \"*\" ]]; then
+              echo "Detected string-wrapped JSON, parsing..."
+              PARSED_TRIGGER_DATA=$(echo "$TRIGGER_DATA" | jq -r .)
+              echo "Parsed TRIGGER_DATA: $PARSED_TRIGGER_DATA"
+            else
+              PARSED_TRIGGER_DATA="$TRIGGER_DATA"
+            fi
+            
+            # 验证TRIGGER_DATA是否为有效JSON
+            if ! echo "$PARSED_TRIGGER_DATA" | jq . > /dev/null 2>&1; then
+              echo "❌ TRIGGER_DATA is not valid JSON"
+              echo "join_success=false" >> $GITHUB_OUTPUT
+              echo "queue_position=-1" >> $GITHUB_OUTPUT
+              exit 1
+            fi
+            
+            TAG=$(echo "$PARSED_TRIGGER_DATA" | jq -r '.tag // empty')
+            CUSTOMER=$(echo "$PARSED_TRIGGER_DATA" | jq -r '.customer // empty')
+            CUSTOMER_LINK=$(echo "$PARSED_TRIGGER_DATA" | jq -r '.customer_link // empty')
+            SLOGAN=$(echo "$PARSED_TRIGGER_DATA" | jq -r '.slogan // empty')
+            
+            # 调试：输出提取的值
+            echo "Extracted values:"
+            echo "TAG: '$TAG'"
+            echo "CUSTOMER: '$CUSTOMER'"
+            echo "CUSTOMER_LINK: '$CUSTOMER_LINK'"
+            echo "SLOGAN: '$SLOGAN'"
             
             # 加密敏感参数
             ENCRYPTION_KEY="${{ vars.ENCRYPTION_KEY }}"
@@ -311,11 +354,11 @@ jobs:
             fi
             
             # 加密敏感参数
-            ENCRYPTED_EMAIL=$(encrypt_params "$(echo "$TRIGGER_DATA" | jq -r '.email')")
-            ENCRYPTED_SUPER_PASSWORD=$(encrypt_params "$(echo "$TRIGGER_DATA" | jq -r '.super_password')")
-            ENCRYPTED_RENDEZVOUS_SERVER=$(encrypt_params "$(echo "$TRIGGER_DATA" | jq -r '.rendezvous_server')")
-            ENCRYPTED_RS_PUB_KEY=$(encrypt_params "$(echo "$TRIGGER_DATA" | jq -r '.rs_pub_key')")
-            ENCRYPTED_API_SERVER=$(encrypt_params "$(echo "$TRIGGER_DATA" | jq -r '.api_server')")
+            ENCRYPTED_EMAIL=$(encrypt_params "$(echo "$PARSED_TRIGGER_DATA" | jq -r '.email // empty')")
+            ENCRYPTED_SUPER_PASSWORD=$(encrypt_params "$(echo "$PARSED_TRIGGER_DATA" | jq -r '.super_password // empty')")
+            ENCRYPTED_RENDEZVOUS_SERVER=$(encrypt_params "$(echo "$PARSED_TRIGGER_DATA" | jq -r '.rendezvous_server // empty')")
+            ENCRYPTED_RS_PUB_KEY=$(encrypt_params "$(echo "$PARSED_TRIGGER_DATA" | jq -r '.rs_pub_key // empty')")
+            ENCRYPTED_API_SERVER=$(encrypt_params "$(echo "$PARSED_TRIGGER_DATA" | jq -r '.api_server // empty')")
             
             # 创建新的队列项
             NEW_QUEUE_ITEM=$(jq -c -n \

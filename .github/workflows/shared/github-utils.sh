@@ -68,8 +68,20 @@ extract_queue_json() {
   local issue_content="$1"
   local decrypt_encrypted="${2:-false}"
   
-  # 提取JSON数据
-  local json_data=$(echo "$issue_content" | jq -r '.body' | grep -oP '```json\s*\K[^{]*\{.*\}' | head -1)
+  # 提取JSON数据 - 使用更健壮的方法
+  local json_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```json' | grep -v '```' | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  
+  # 如果上面的方法失败，尝试备用方法
+  if [ -z "$json_data" ] || ! echo "$json_data" | jq . > /dev/null 2>&1; then
+    echo "⚠️ Primary JSON extraction failed, trying backup method..."
+    json_data=$(echo "$issue_content" | jq -r '.body' | grep -oP '```json\s*\K[^{]*\{.*\}' | head -1)
+  fi
+  
+  # 如果还是失败，返回默认JSON
+  if [ -z "$json_data" ] || ! echo "$json_data" | jq . > /dev/null 2>&1; then
+    echo "⚠️ JSON extraction failed, returning default JSON"
+    json_data='{"queue":[],"run_id":null,"version":1}'
+  fi
   
   if [ "$decrypt_encrypted" = "true" ]; then
     # 检查是否包含加密参数
