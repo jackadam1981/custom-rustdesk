@@ -475,8 +475,25 @@ jobs:
                 
                 # 检查是否轮到构建（队列第一位且没有锁）
                 if [ "$CURRENT_QUEUE_POSITION" = "1" ] && [ "$CURRENT_LOCK_RUN_ID" = "null" ]; then
-                  echo "✅ It's our turn to build!"
-                  break
+                  echo "✅ It's our turn to build! Acquiring lock..."
+                  # 抢锁：更新 run_id
+                  UPDATED_QUEUE_DATA=$(echo "$QUEUE_DATA" | jq --arg run_id "${{ env.BUILD_ID }}" '.run_id = $run_id')
+                  # 拼接新的正文
+                  CURRENT_TIME=$(date '+%Y-%m-%d %H:%M:%S')
+                  UPDATED_BODY="## 构建队列管理\n\n**最后更新时间：** $CURRENT_TIME\n\n### 当前状态\n- **构建锁状态：** 占用 🔒\n- **当前构建：** Custom Rustdesk Build\n- **锁持有者：** ${{ env.BUILD_ID }}\n- **版本：** $(echo "$UPDATED_QUEUE_DATA" | jq -r '.version')\n\n### 构建队列\n- **当前数量：** $(echo "$UPDATED_QUEUE_DATA" | jq '.queue | length // 0')/5\n- **Issue触发：** $(echo "$UPDATED_QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "issue")) | length // 0')/3\n- **手动触发：** $(echo "$UPDATED_QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "workflow_dispatch")) | length // 0')/5\n\n---\n\n### 队列数据\n\`\`\`json\n$UPDATED_QUEUE_DATA\n\`\`\`\n"
+                  update_queue_issue "$QUEUE_MANAGER_ISSUE" "$UPDATED_BODY"
+                  # 再次获取队列数据，确认锁已被自己持有
+                  QUEUE_MANAGER_CONTENT=$(get_queue_manager_content "$QUEUE_MANAGER_ISSUE")
+                  QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
+                  CURRENT_LOCK_RUN_ID=$(echo "$QUEUE_DATA" | jq -r '.run_id // null')
+                  if [ "$CURRENT_LOCK_RUN_ID" = "${{ env.BUILD_ID }}" ]; then
+                    echo "✅ Lock acquired by current build."
+                    break
+                  else
+                    echo "⚠️ Failed to acquire lock, retrying..."
+                    sleep 3
+                    continue
+                  fi
                 fi
                 
                 # 检查是否有锁但锁持有者不是我们
