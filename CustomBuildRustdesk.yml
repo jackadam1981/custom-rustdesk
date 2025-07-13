@@ -615,7 +615,31 @@ jobs:
               RESET_QUEUE_DATA='{"queue":[],"run_id":null,"version":1}'
               
                             # 重置issue模板 - 使用简单的字符串拼接
-              RESET_BODY="## 构建队列管理\n\n**最后更新时间：** \$(date '+%Y-%m-%d %H:%M:%S')\n\n### 当前状态\n- **构建锁状态：** 空闲 🔓\n- **当前构建：** 无\n- **锁持有者：** 无\n- **版本：** 1\n\n### 构建队列\n- **当前数量：** 0/5\n- **Issue触发：** 0/3\n- **手动触发：** 0/5\n\n---\n\n### 重置记录\n**重置时间：** \$(date '+%Y-%m-%d %H:%M:%S')\n**重置原因：** JSON解析失败，重置为默认模板\n\n### 队列数据\n\`\`\`json\n$RESET_QUEUE_DATA\n\`\`\`"
+              RESET_BODY="## 构建队列管理
+
+**最后更新时间：** \$(date '+%Y-%m-%d %H:%M:%S')
+
+### 当前状态
+- **构建锁状态：** 空闲 🔓
+- **当前构建：** 无
+- **锁持有者：** 无
+- **版本：** 1
+
+### 构建队列
+- **当前数量：** 0/5
+- **Issue触发：** 0/3
+- **手动触发：** 0/5
+
+---
+
+### 重置记录
+**重置时间：** \$(date '+%Y-%m-%d %H:%M:%S')
+**重置原因：** JSON解析失败，重置为默认模板
+
+### 队列数据
+\`\`\`json
+$RESET_QUEUE_DATA
+\`\`\`"
               
               UPDATE_RESPONSE=$(curl -s -X PATCH \
                 -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
@@ -790,7 +814,8 @@ jobs:
               # 构建清理原因文本
               CLEANUP_REASON_TEXT=""
               for reason in "${CLEANUP_REASONS[@]}"; do
-                CLEANUP_REASON_TEXT="${CLEANUP_REASON_TEXT}• $reason\n"
+                CLEANUP_REASON_TEXT="${CLEANUP_REASON_TEXT}- $reason
+"
               done
               
               # 更新队列管理issue

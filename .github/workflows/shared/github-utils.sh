@@ -334,7 +334,8 @@ validate_server_parameters() {
   
   # 检查rendezvous_server格式
   if ! is_valid_ip "$rendezvous_server" && ! is_valid_domain "$rendezvous_server"; then
-    auto_reject_reason="${auto_reject_reason}• rendezvous_server 格式无效: $rendezvous_server\n"
+    auto_reject_reason="${auto_reject_reason}• rendezvous_server 格式无效: $rendezvous_server
+    "
     echo "❌ rendezvous_server format invalid"
   else
     echo "✅ rendezvous_server format valid"
@@ -342,7 +343,8 @@ validate_server_parameters() {
   
   # 检查api_server格式
   if ! is_valid_url "$api_server"; then
-    auto_reject_reason="${auto_reject_reason}• api_server 格式无效: $api_server\n"
+    auto_reject_reason="${auto_reject_reason}• api_server 格式无效: $api_server
+    "
     echo "❌ api_server format invalid"
   else
     echo "✅ api_server format valid"
@@ -350,7 +352,8 @@ validate_server_parameters() {
   
   # 检查email（如果提供）
   if [ -n "$email" ] && ! is_email "$email"; then
-    auto_reject_reason="${auto_reject_reason}• email 格式非法: $email\n"
+    auto_reject_reason="${auto_reject_reason}• email 格式非法: $email
+    "
     echo "❌ email validation failed"
   else
     echo "✅ email validation passed"
@@ -489,10 +492,11 @@ cleanup_queue_data() {
   CLEANUP_REASON_TEXT=""
   for reason in "${CLEANUP_REASONS[@]}"; do
     CLEANUP_REASON_TEXT="${CLEANUP_REASON_TEXT}- $reason
-"
+  "
   done
   
   # 清理队列数据模板
+  local cleaned_queue_data_single=$(echo "$cleaned_queue_data" | jq -c .)
   local updated_body="## 构建队列管理
 
 **最后更新时间：** $current_time
@@ -515,9 +519,9 @@ cleanup_queue_data() {
 **清理原因：**
 $CLEANUP_REASON_TEXT
 ### 队列数据
-```json
-$cleaned_queue_data
-```
+\`\`\`json
+$cleaned_queue_data_single
+\`\`\`
 "
   
   # 尝试更新队列管理issue
@@ -610,9 +614,9 @@ update_queue_status() {
 **新状态：** $status
 
 ### 队列数据
-```json
+\`\`\`json
 $updated_queue_data
-```
+\`\`\`
 "
   
   # 更新队列管理issue
