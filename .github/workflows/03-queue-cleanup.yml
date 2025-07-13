@@ -7,6 +7,9 @@ jobs:
   queue_cleanup:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
       - name: Check and cleanup queue
         run: |
           source .github/workflows/shared/github-utils.sh

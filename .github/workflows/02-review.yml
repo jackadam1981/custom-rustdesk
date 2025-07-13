@@ -22,6 +22,9 @@ jobs:
       data: ${{ steps.output.outputs.data || steps.output_rejected.outputs.data }}
       build_approved: ${{ steps.output.outputs.build_approved || steps.output_rejected.outputs.build_approved }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
       - name: Setup review data
         id: setup
         run: |
@@ -80,14 +83,8 @@ jobs:
       
       - name: Auto reject invalid server parameters
         run: |
-          # 检查当前工作目录和文件是否存在
-          echo "Current working directory: $(pwd)"
-          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
-          echo "Checking if file exists:"
-          ls -la $GITHUB_WORKSPACE/.github/workflows/shared/
-          
           # 加载共享工具函数
-          source $GITHUB_WORKSPACE/.github/workflows/shared/github-utils.sh
+          source .github/workflows/shared/github-utils.sh
           
           # 检查参数是否为空
           if [ -z "$RENDEZVOUS_SERVER" ] || [ -z "$API_SERVER" ] || [ -z "$EMAIL" ]; then
@@ -154,14 +151,8 @@ jobs:
             NEED_REVIEW=false
           fi
 
-          # 检查当前工作目录和文件是否存在
-          echo "Current working directory: $(pwd)"
-          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
-          echo "Checking if file exists:"
-          ls -la $GITHUB_WORKSPACE/.github/workflows/shared/
-          
           # 加载共享工具函数
-          source $GITHUB_WORKSPACE/.github/workflows/shared/github-utils.sh
+          source .github/workflows/shared/github-utils.sh
           
           # 检查是否为私有IP地址
           RENDEZVOUS_PRIVATE=false
@@ -223,14 +214,8 @@ jobs:
           **状态：** 等待审核中 ⏳
           **时间：** $(date '+%Y-%m-%d %H:%M:%S')"
           
-          # 检查当前工作目录和文件是否存在
-          echo "Current working directory: $(pwd)"
-          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
-          echo "Checking if file exists:"
-          ls -la $GITHUB_WORKSPACE/.github/workflows/shared/
-          
           # 加载共享工具函数
-          source $GITHUB_WORKSPACE/.github/workflows/shared/github-utils.sh
+          source .github/workflows/shared/github-utils.sh
           
           if [ -n "$ORIGINAL_ISSUE_NUMBER" ]; then
             add_issue_comment "$ORIGINAL_ISSUE_NUMBER" "$REVIEW_COMMENT"
