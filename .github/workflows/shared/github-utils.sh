@@ -485,6 +485,13 @@ cleanup_queue_data() {
   local current_time=$(date '+%Y-%m-%d %H:%M:%S')
   local current_version=$(echo "$cleaned_queue_data" | jq -r '.version')
   
+  # 构建清理原因文本
+  CLEANUP_REASON_TEXT=""
+  for reason in "${CLEANUP_REASONS[@]}"; do
+    CLEANUP_REASON_TEXT="${CLEANUP_REASON_TEXT}- $reason
+"
+  done
+  
   # 清理队列数据模板
   local updated_body="## 构建队列管理
 
@@ -506,7 +513,7 @@ cleanup_queue_data() {
 ### 清理记录
 **清理时间：** $current_time
 **清理原因：**
-$cleanup_reason_text
+$CLEANUP_REASON_TEXT
 ### 队列数据
 ```json
 $cleaned_queue_data
