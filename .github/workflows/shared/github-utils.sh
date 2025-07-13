@@ -68,19 +68,18 @@ extract_queue_json() {
   local issue_content="$1"
   local decrypt_encrypted="${2:-false}"
   
-  # 提取JSON数据 - 使用更健壮的方法
+  # 优先提取 ```json ... ``` 代码块
   local json_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```json' | grep -v '```' | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
   echo "DEBUG: Primary extraction result: '$json_data'" >&2
   
-  # 如果上面的方法失败，尝试备用方法
+  # 如果失败，尝试只用 ``` 包裹的代码块
   if [ -z "$json_data" ] || ! echo "$json_data" | jq . > /dev/null 2>&1; then
-    echo "⚠️ Primary JSON extraction failed, trying backup method..." >&2
-    # 使用更兼容的方法，避免使用 -P 标志
-    json_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | sed '1d;$d' | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-    echo "DEBUG: Secondary extraction result: '$json_data'" >&2
+    echo "⚠️ Primary JSON extraction failed, trying fallback for plain code block..." >&2
+    json_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```/,/```/p' | grep -v '```' | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    echo "DEBUG: Fallback plain code block extraction result: '$json_data'" >&2
   fi
   
-  # 如果还是失败，尝试第三种方法
+  # 如果还是失败，尝试第三种方法（保留原有逻辑）
   if [ -z "$json_data" ] || ! echo "$json_data" | jq . > /dev/null 2>&1; then
     echo "⚠️ Secondary JSON extraction failed, trying third method..." >&2
     json_data=$(echo "$issue_content" | jq -r '.body' | grep -A 100 '```json' | grep -B 100 '```' | grep -v '```json' | grep -v '```' | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
