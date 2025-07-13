@@ -472,7 +472,7 @@ cleanup_queue_data() {
       cleaned_queue_data=$(echo "$cleaned_queue_data" | jq --arg run_id "$expired_run" '.queue = (.queue | map(select(.build_id != $run_id)))')
     done
   fi
-
+  
   # 计算清理后的队列数量
   local cleaned_total_count=$(echo "$cleaned_queue_data" | jq '.queue | length // 0')
   local cleaned_issue_count=$(echo "$cleaned_queue_data" | jq '.queue | map(select(.trigger_type == "issue")) | length // 0')
@@ -508,9 +508,10 @@ cleanup_queue_data() {
 **清理原因：**
 $cleanup_reason_text
 ### 队列数据
-\`\`\`json
+```json
 $cleaned_queue_data
-\`\`\`"
+```
+"
   
   # 尝试更新队列管理issue
   if update_queue_issue "$queue_issue_number" "$updated_body"; then
@@ -602,9 +603,10 @@ update_queue_status() {
 **新状态：** $status
 
 ### 队列数据
-\`\`\`json
+```json
 $updated_queue_data
-\`\`\`"
+```
+"
   
   # 更新队列管理issue
   if update_queue_issue "$queue_issue_number" "$updated_body"; then

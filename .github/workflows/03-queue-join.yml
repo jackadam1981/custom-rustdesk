@@ -70,7 +70,7 @@ jobs:
           
           # 设置环境变量供后续步骤使用
           echo "CURRENT_DATA=$INPUT" >> $GITHUB_ENV
-
+          
       - name: Join queue with auto cleanup and wait
         id: join
         env:
