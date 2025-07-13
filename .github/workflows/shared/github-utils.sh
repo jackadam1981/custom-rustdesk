@@ -392,7 +392,7 @@ cleanup_queue_data() {
   shift 4
   local invalid_issues=("$@")
   
-  echo "Cleaning up queue data..."
+  echo "Cleaning up queue data..." >&2
   
   # 开始清理数据
   local cleaned_queue_data=$(echo "$queue_data" | \
@@ -412,55 +412,79 @@ cleanup_queue_data() {
         '.queue = (.queue | map(select(.build_id != $build_id)))')
     done
   fi
-  
+
+  # 检查 workflow_dispatch 类型的 run 是否已结束
+  local EXPIRED_RUNS=()
+  local queue_json=$(echo "$cleaned_queue_data" | jq -c '.queue')
+  for run_id in $(echo "$queue_json" | jq -r '.[] | select(.trigger_type == "workflow_dispatch") | .build_id'); do
+    RUN_RESPONSE=$(curl -s \
+      -H "Authorization: token $GITHUB_TOKEN" \
+      -H "Accept: application/vnd.github.v3+json" \
+      "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$run_id")
+    if echo "$RUN_RESPONSE" | jq -e '.message' | grep -q "Not Found"; then
+      EXPIRED_RUNS+=("$run_id")
+      echo "EXPIRED_RUN: $run_id (Not Found)" >&2
+    else
+      RUN_STATUS=$(echo "$RUN_RESPONSE" | jq -r '.status // "unknown"')
+      RUN_CONCLUSION=$(echo "$RUN_RESPONSE" | jq -r '.conclusion // "unknown"')
+      if [ "$RUN_STATUS" = "completed" ] || [ "$RUN_STATUS" = "cancelled" ] || [ "$RUN_STATUS" = "failure" ] || [ "$RUN_STATUS" = "skipped" ]; then
+        EXPIRED_RUNS+=("$run_id")
+        echo "EXPIRED_RUN: $run_id (status: $RUN_STATUS, conclusion: $RUN_CONCLUSION)" >&2
+      fi
+    fi
+  done
+  # 移除已结束/无效的 workflow_dispatch 队列项
+  if [ ${#EXPIRED_RUNS[@]} -gt 0 ]; then
+    for expired_run in "${EXPIRED_RUNS[@]}"; do
+      cleaned_queue_data=$(echo "$cleaned_queue_data" | jq --arg run_id "$expired_run" '.queue = (.queue | map(select(.build_id != $run_id)))')
+    done
+  fi
+
   # 计算清理后的队列数量
   local cleaned_total_count=$(echo "$cleaned_queue_data" | jq '.queue | length // 0')
   local cleaned_issue_count=$(echo "$cleaned_queue_data" | jq '.queue | map(select(.trigger_type == "issue")) | length // 0')
   local cleaned_workflow_count=$(echo "$cleaned_queue_data" | jq '.queue | map(select(.trigger_type == "workflow_dispatch")) | length // 0')
   
-  echo "Cleaned queue data: $cleaned_queue_data"
-  echo "Cleaned counts - Total: $cleaned_total_count, Issue: $cleaned_issue_count, Workflow: $cleaned_workflow_count"
+  echo "Cleaned queue data: $cleaned_queue_data" >&2
+  echo "Cleaned counts - Total: $cleaned_total_count, Issue: $cleaned_issue_count, Workflow: $cleaned_workflow_count" >&2
   
   # 更新队列管理issue
   local current_time=$(date '+%Y-%m-%d %H:%M:%S')
   local current_version=$(echo "$cleaned_queue_data" | jq -r '.version')
   
   local updated_body="## 构建队列管理
-
-**最后更新时间：** $current_time
-
-### 当前状态
-- **构建锁状态：** 空闲 🔓 (已清理)
-- **当前构建：** 无
-- **锁持有者：** 无
-- **版本：** $current_version
-
-### 构建队列
-- **当前数量：** $cleaned_total_count/5
-- **Issue触发：** $cleaned_issue_count/3
-- **手动触发：** $cleaned_workflow_count/5
-
----
-
-### 清理记录
-**清理时间：** $current_time
-**清理原因：**
-$cleanup_reason_text
-### 队列数据
-\`\`\`json
-$cleaned_queue_data
-\`\`\`"
+  
+  **最后更新时间：** $current_time
+  ### 当前状态
+   **构建锁状态：** 空闲 🔓 (已清理)
+   **当前构建：** 无
+   **锁持有者：** 无
+   **版本：** $current_version
+  
+  ### 构建队列
+   **当前数量：** $cleaned_total_count/5
+   **Issue触发：** $cleaned_issue_count/3
+   **手动触发：** $cleaned_workflow_count/5
+  
+  ### 清理记录
+  **清理时间：** $current_time
+  **清理原因：**
+  $cleanup_reason_text
+  ### 队列数据
+  \`\`\`json
+  $cleaned_queue_data
+  \`\`\`"
   
   # 尝试更新队列管理issue
   if update_queue_issue "$queue_issue_number" "$updated_body"; then
-    echo "✅ Queue data cleanup successful"
-    echo "Queue cleanup completed successfully!"
-    echo "Cleaned total count: $cleaned_total_count"
-    echo "Cleaned issue count: $cleaned_issue_count"
-    echo "Cleaned workflow count: $cleaned_workflow_count"
+    echo "✅ Queue data cleanup successful" >&2
+    echo "Queue cleanup completed successfully!" >&2
+    echo "Cleaned total count: $cleaned_total_count" >&2
+    echo "Cleaned issue count: $cleaned_issue_count" >&2
+    echo "Cleaned workflow count: $cleaned_workflow_count" >&2
     return 0
   else
-    echo "❌ Queue data cleanup failed"
+    echo "❌ Queue data cleanup failed" >&2
     return 1
   fi
 }
