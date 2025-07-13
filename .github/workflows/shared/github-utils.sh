@@ -70,17 +70,35 @@ extract_queue_json() {
   
   # 提取JSON数据 - 使用更健壮的方法
   local json_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | grep -v '```json' | grep -v '```' | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  echo "DEBUG: Primary extraction result: '$json_data'"
   
   # 如果上面的方法失败，尝试备用方法
   if [ -z "$json_data" ] || ! echo "$json_data" | jq . > /dev/null 2>&1; then
     echo "⚠️ Primary JSON extraction failed, trying backup method..."
-    json_data=$(echo "$issue_content" | jq -r '.body' | grep -oP '```json\s*\K[^{]*\{.*\}' | head -1)
+    # 使用更兼容的方法，避免使用 -P 标志
+    json_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | sed '1d;$d' | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    echo "DEBUG: Secondary extraction result: '$json_data'"
+  fi
+  
+  # 如果还是失败，尝试第三种方法
+  if [ -z "$json_data" ] || ! echo "$json_data" | jq . > /dev/null 2>&1; then
+    echo "⚠️ Secondary JSON extraction failed, trying third method..."
+    json_data=$(echo "$issue_content" | jq -r '.body' | grep -A 100 '```json' | grep -B 100 '```' | grep -v '```json' | grep -v '```' | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    echo "DEBUG: Third extraction result: '$json_data'"
   fi
   
   # 如果还是失败，返回默认JSON
   if [ -z "$json_data" ] || ! echo "$json_data" | jq . > /dev/null 2>&1; then
     echo "⚠️ JSON extraction failed, returning default JSON"
+    echo "DEBUG: Final json_data before default: '$json_data'"
     json_data='{"queue":[],"run_id":null,"version":1}'
+  fi
+  
+  # 最终验证
+  if ! echo "$json_data" | jq . > /dev/null 2>&1; then
+    echo "❌ Critical error: Even default JSON is invalid!"
+    echo "DEBUG: json_data: '$json_data'"
+    return 1
   fi
   
   if [ "$decrypt_encrypted" = "true" ]; then
@@ -328,8 +346,9 @@ reset_queue_to_default() {
   echo "Reason: $reason"
   local reset_queue_data='{"queue":[],"run_id":null,"version":1}'
   local now=$(date '+%Y-%m-%d %H:%M:%S')
-  local reset_body=$(cat <<EOF
-## 构建队列管理
+  
+  # 使用简单的字符串拼接，然后用 jq 安全处理
+  local reset_body="## 构建队列管理
 
 **最后更新时间：** $now
 
@@ -351,11 +370,9 @@ reset_queue_to_default() {
 **重置原因：** $reason
 
 ### 队列数据
-```json
+\`\`\`json
 $reset_queue_data
-```
-EOF
-)
+\`\`\`"
   if update_queue_issue "$queue_issue_number" "$reset_body"; then
     echo "✅ Queue reset successful"
     return 0
@@ -406,15 +423,18 @@ cleanup_queue_data() {
   echo "Cleaned counts - Total: $cleaned_total_count, Issue: $cleaned_issue_count, Workflow: $cleaned_workflow_count"
   
   # 更新队列管理issue
+  local current_time=$(date '+%Y-%m-%d %H:%M:%S')
+  local current_version=$(echo "$cleaned_queue_data" | jq -r '.version')
+  
   local updated_body="## 构建队列管理
 
-**最后更新时间：** $(date '+%Y-%m-%d %H:%M:%S')
+**最后更新时间：** $current_time
 
 ### 当前状态
 - **构建锁状态：** 空闲 🔓 (已清理)
 - **当前构建：** 无
 - **锁持有者：** 无
-- **版本：** $(echo "$cleaned_queue_data" | jq -r '.version')
+- **版本：** $current_version
 
 ### 构建队列
 - **当前数量：** $cleaned_total_count/5
@@ -424,7 +444,7 @@ cleanup_queue_data() {
 ---
 
 ### 清理记录
-**清理时间：** $(date '+%Y-%m-%d %H:%M:%S')
+**清理时间：** $current_time
 **清理原因：**
 $cleanup_reason_text
 ### 队列数据
@@ -495,15 +515,18 @@ update_queue_status() {
   fi
   
   # 更新队列管理issue
+  local current_time=$(date '+%Y-%m-%d %H:%M:%S')
+  local current_version=$(echo "$updated_queue_data" | jq -r '.version')
+  
   local updated_body="## 构建队列管理
 
-**最后更新时间：** $(date '+%Y-%m-%d %H:%M:%S')
+**最后更新时间：** $current_time
 
 ### 当前状态
 - **构建锁状态：** $lock_status
 - **当前构建：** $current_build
 - **锁持有者：** $lock_holder
-- **版本：** $(echo "$updated_queue_data" | jq -r '.version')
+- **版本：** $current_version
 
 ### 构建队列
 - **当前数量：** $total_count/5
@@ -513,7 +536,7 @@ update_queue_status() {
 ---
 
 ### 状态更新记录
-**更新时间：** $(date '+%Y-%m-%d %H:%M:%S')
+**更新时间：** $current_time
 **项目：** $project_name
 **新状态：** $status
 

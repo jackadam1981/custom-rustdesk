@@ -93,14 +93,18 @@ jobs:
             
             QUEUE_MANAGER_ISSUE="1"
             QUEUE_MANAGER_CONTENT=$(get_queue_manager_content "$QUEUE_MANAGER_ISSUE")
+            echo "DEBUG: Raw queue manager content length: $(echo "$QUEUE_MANAGER_CONTENT" | wc -c)"
             QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
+            echo "DEBUG: Extracted queue data: '$QUEUE_DATA'"
             
             # 如果解析JSON失败，直接重置
             if [ -z "$QUEUE_DATA" ] || ! echo "$QUEUE_DATA" | jq . > /dev/null 2>&1; then
               echo "❌ JSON parsing failed, resetting queue template"
+              echo "DEBUG: Failed queue data: '$QUEUE_DATA'"
               reset_queue_to_default "$QUEUE_MANAGER_ISSUE" "JSON解析失败，重置为默认模板"
               QUEUE_MANAGER_CONTENT=$(get_queue_manager_content "$QUEUE_MANAGER_ISSUE")
               QUEUE_DATA=$(extract_queue_json "$QUEUE_MANAGER_CONTENT")
+              echo "DEBUG: After reset, queue data: '$QUEUE_DATA'"
             fi
             
             # 获取当前状态
@@ -389,7 +393,29 @@ jobs:
             UPDATED_ISSUE_COUNT=$(echo "$NEW_QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "issue")) | length // 0')
             UPDATED_WORKFLOW_COUNT=$(echo "$NEW_QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "workflow_dispatch")) | length // 0')
             
-            UPDATED_BODY="## 构建队列管理\n\n**最后更新时间：** \$(date '+%Y-%m-%d %H:%M:%S')\n\n### 当前状态\n- **构建锁状态：** 空闲 🔓\n- **当前构建：** 无\n- **锁持有者：** 无\n- **版本：** $CURRENT_VERSION\n\n### 构建队列\n- **当前数量：** $UPDATED_TOTAL_COUNT/5\n- **Issue触发：** $UPDATED_ISSUE_COUNT/3\n- **手动触发：** $UPDATED_WORKFLOW_COUNT/5\n\n---\n\n### 队列数据\n\`\`\`json\n$NEW_QUEUE_DATA\n\`\`\`"
+            CURRENT_TIME=$(date '+%Y-%m-%d %H:%M:%S')
+            UPDATED_BODY: |
+              ## 构建队列管理
+
+              **最后更新时间：** $CURRENT_TIME
+
+              ### 当前状态
+              - **构建锁状态：** 空闲 🔓
+              - **当前构建：** 无
+              - **锁持有者：** 无
+              - **版本：** $CURRENT_VERSION
+
+              ### 构建队列
+              - **当前数量：** $UPDATED_TOTAL_COUNT/5
+              - **Issue触发：** $UPDATED_ISSUE_COUNT/3
+              - **手动触发：** $UPDATED_WORKFLOW_COUNT/5
+
+              ---
+
+              ### 队列数据
+              ```json
+              $NEW_QUEUE_DATA
+              ```
             
             if update_queue_issue "$QUEUE_MANAGER_ISSUE" "$UPDATED_BODY"; then
               echo "✅ Successfully joined queue"
