@@ -390,6 +390,7 @@ jobs:
             NEW_QUEUE_DATA=$(echo "$QUEUE_DATA" | jq --argjson new_queue "$NEW_QUEUE" '.queue = $new_queue')
             
             # 更新队列管理issue
+            NEW_QUEUE_DATA_SINGLE=$(echo "$NEW_QUEUE_DATA" | jq -c .)
             UPDATED_TOTAL_COUNT=$(echo "$NEW_QUEUE_DATA" | jq '.queue | length // 0')
             UPDATED_ISSUE_COUNT=$(echo "$NEW_QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "issue")) | length // 0')
             UPDATED_WORKFLOW_COUNT=$(echo "$NEW_QUEUE_DATA" | jq '.queue | map(select(.trigger_type == "workflow_dispatch")) | length // 0')
@@ -414,7 +415,7 @@ jobs:
 
             ### 队列数据
             \`\`\`json
-            $NEW_QUEUE_DATA
+            $NEW_QUEUE_DATA_SINGLE
             \`\`\`
             "
             
@@ -481,6 +482,7 @@ jobs:
                   UPDATED_QUEUE_DATA=$(echo "$QUEUE_DATA" | jq --arg run_id "${{ env.BUILD_ID }}" '.run_id = $run_id')
                   # 拼接新的正文
                   CURRENT_TIME=$(date '+%Y-%m-%d %H:%M:%S')
+                  UPDATED_QUEUE_DATA_SINGLE=$(echo "$UPDATED_QUEUE_DATA" | jq -c .)
                   UPDATED_BODY="## 构建队列管理
 
                   **最后更新时间：** $CURRENT_TIME
@@ -500,7 +502,7 @@ jobs:
 
                   ### 队列数据
                   \`\`\`json
-                  $UPDATED_QUEUE_DATA
+                  $UPDATED_QUEUE_DATA_SINGLE
                   \`\`\`
                   "
                   update_queue_issue "$QUEUE_MANAGER_ISSUE" "$UPDATED_BODY"

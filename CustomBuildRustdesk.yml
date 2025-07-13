@@ -843,9 +843,9 @@ $RESET_QUEUE_DATA
                 $CLEANUP_REASON_TEXT
 
                 ### 队列数据
-                ```json
+                \`\`\`json
                 $CLEANED_QUEUE_DATA
-                ```
+                \`\`\`
               
               # 尝试更新队列管理issue
               UPDATE_RESPONSE=$(curl -s -X PATCH \
@@ -1205,9 +1205,9 @@ $RESET_QUEUE_DATA
               ---
 
               ### 队列数据
-              ```json
+              \`\`\`json
               $UPDATED_QUEUE_DATA
-              ```
+              \`\`\`
             
             # 在写入issue前，强制单行JSON
             UPDATED_QUEUE_DATA=$(echo "$UPDATED_QUEUE_DATA" | jq -c .)
@@ -1405,9 +1405,9 @@ $RESET_QUEUE_DATA
                     ---
 
                     ### 队列数据
-                    ```json
+                    \`\`\`json
                     $UPDATED_QUEUE_DATA
-                    ```
+                    \`\`\`
                   
                   UPDATE_RESPONSE=$(curl -s -X PATCH \
                     -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
@@ -1586,9 +1586,9 @@ $RESET_QUEUE_DATA
               ---
 
               ### 队列数据
-              ```json
+              \`\`\`json
               $UPDATED_QUEUE_DATA
-              ```
+              \`\`\`
             
             # 在写入issue前，强制单行JSON
             UPDATED_QUEUE_DATA=$(echo "$UPDATED_QUEUE_DATA" | jq -c .)
@@ -1794,9 +1794,9 @@ $RESET_QUEUE_DATA
                 ---
 
                 ### 队列数据
-                ```json
+                \`\`\`json
                 $UPDATED_QUEUE_DATA
-                ```
+                \`\`\`
               
               UPDATE_RESPONSE=$(curl -s -X PATCH \
                 -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
