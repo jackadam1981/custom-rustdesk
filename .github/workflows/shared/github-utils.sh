@@ -177,6 +177,18 @@ add_issue_comment() {
     -d "$(jq -n --arg body "$comment" '{"body": $body}')"
 }
 
+# 通用函数：仅在 issue 触发时添加 issue 评论
+add_issue_comment_if_issue_trigger() {
+  local trigger_type="$1"
+  local issue_number="$2"
+  local comment="$3"
+  if [ "$trigger_type" = "issue" ] && [ -n "$issue_number" ]; then
+    add_issue_comment "$issue_number" "$comment"
+  else
+    echo "Not an issue trigger, skipping add_issue_comment."
+  fi
+}
+
 # 通用函数：重试机制
 retry_operation() {
   local max_retries="${1:-5}"

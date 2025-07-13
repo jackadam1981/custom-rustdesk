@@ -74,7 +74,7 @@ jobs:
       - name: Join queue with auto cleanup and wait
         id: join
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.ISSUE_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
         run: |
@@ -282,7 +282,7 @@ jobs:
               ORIGINAL_ISSUE_NUMBER="${{ env.BUILD_ID }}"
               
               if [ -n "$ORIGINAL_ISSUE_NUMBER" ]; then
-                add_issue_comment "$ORIGINAL_ISSUE_NUMBER" "$REJECT_COMMENT"
+                add_issue_comment_if_issue_trigger "${{ env.TRIGGER_TYPE }}" "${{ env.BUILD_ID }}" "$REJECT_COMMENT"
               fi
               
               echo "join_success=false" >> $GITHUB_OUTPUT
@@ -414,7 +414,7 @@ jobs:
               ORIGINAL_ISSUE_NUMBER="${{ env.BUILD_ID }}"
               
               if [ -n "$ORIGINAL_ISSUE_NUMBER" ]; then
-                add_issue_comment "$ORIGINAL_ISSUE_NUMBER" "$SUCCESS_COMMENT"
+                add_issue_comment_if_issue_trigger "${{ env.TRIGGER_TYPE }}" "${{ env.BUILD_ID }}" "$SUCCESS_COMMENT"
               fi
               
               echo "join_success=true" >> $GITHUB_OUTPUT
