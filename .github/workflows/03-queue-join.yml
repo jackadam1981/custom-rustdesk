@@ -76,6 +76,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
         run: |
           # 加载共享工具函数
           source .github/workflows/shared/github-utils.sh
@@ -344,7 +345,7 @@ jobs:
             echo "SLOGAN: '$SLOGAN'"
             
             # 加密敏感参数
-            ENCRYPTION_KEY="${{ vars.ENCRYPTION_KEY }}"
+            # ENCRYPTION_KEY 已通过 env 传递，无需再赋值
             
             if [ -z "$ENCRYPTION_KEY" ]; then
               echo "❌ Encryption key not found in repository variables"
