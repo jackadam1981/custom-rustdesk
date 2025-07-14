@@ -10,9 +10,8 @@ source .github/workflows/scripts/issue-manager.sh
 extract_workflow_dispatch_params() {
     local event_data="$1"
     
-    echo "Manual trigger detected"
-    
-    # 从事件数据中提取参数
+    echo "Manual trigger detected" >&2
+    # 从完整事件数据中提取 inputs 部分
     local tag=$(echo "$event_data" | jq -r '.inputs.tag // empty')
     local email=$(echo "$event_data" | jq -r '.inputs.email // empty')
     local customer=$(echo "$event_data" | jq -r '.inputs.customer // empty')
@@ -23,23 +22,35 @@ extract_workflow_dispatch_params() {
     local rs_pub_key=$(echo "$event_data" | jq -r '.inputs.rs_pub_key // empty')
     local api_server=$(echo "$event_data" | jq -r '.inputs.api_server // empty')
     
-    # 返回提取的参数
-    echo "TAG=$tag"
-    echo "EMAIL=$email"
-    echo "CUSTOMER=$customer"
-    echo "CUSTOMER_LINK=$customer_link"
-    echo "SUPER_PASSWORD=$super_password"
-    echo "SLOGAN=$slogan"
-    echo "RENDEZVOUS_SERVER=$rendezvous_server"
-    echo "RS_PUB_KEY=$rs_pub_key"
-    echo "API_SERVER=$api_server"
+    # 调试输出提取的参数
+    echo "Extracted workflow_dispatch parameters:" >&2
+    echo "TAG: '$tag'" >&2
+    echo "EMAIL: '$email'" >&2
+    echo "CUSTOMER: '$customer'" >&2
+    echo "CUSTOMER_LINK: '$customer_link'" >&2
+    echo "SUPER_PASSWORD: '$super_password'" >&2
+    echo "SLOGAN: '$slogan'" >&2
+    echo "RENDEZVOUS_SERVER: '$rendezvous_server'" >&2
+    echo "RS_PUB_KEY: '$rs_pub_key'" >&2
+    echo "API_SERVER: '$api_server'" >&2
+    
+    # 返回提取的参数（正确引用包含空格的变量值）
+    echo "TAG=\"$tag\""
+    echo "EMAIL=\"$email\""
+    echo "CUSTOMER=\"$customer\""
+    echo "CUSTOMER_LINK=\"$customer_link\""
+    echo "SUPER_PASSWORD=\"$super_password\""
+    echo "SLOGAN=\"$slogan\""
+    echo "RENDEZVOUS_SERVER=\"$rendezvous_server\""
+    echo "RS_PUB_KEY=\"$rs_pub_key\""
+    echo "API_SERVER=\"$api_server\""
 }
 
 # 从 issue 内容中提取参数
 extract_issue_params() {
     local event_data="$1"
     
-    echo "Issue trigger detected"
+    echo "Issue trigger detected" >&2
     
     # 从事件数据中提取 issue 信息
     local build_id=$(echo "$event_data" | jq -r '.issue.number // empty')
@@ -90,30 +101,18 @@ extract_issue_params() {
     if [ -z "$api_server" ]; then
         api_server=$(echo "$issue_body" | grep -oP '--api_server:\s*\K[^\r\n]+' | head -1 || echo "")
     fi
-    
-    # 调试输出提取的参数
-    echo "Extracted parameters:"
-    echo "TAG: '$tag'"
-    echo "EMAIL: '$email'"
-    echo "CUSTOMER: '$customer'"
-    echo "CUSTOMER_LINK: '$customer_link'"
-    echo "SUPER_PASSWORD: '$super_password'"
-    echo "SLOGAN: '$slogan'"
-    echo "RENDEZVOUS_SERVER: '$rendezvous_server'"
-    echo "RS_PUB_KEY: '$rs_pub_key'"
-    echo "API_SERVER: '$api_server'"
-    
-    # 返回提取的参数
-    echo "BUILD_ID=$build_id"
-    echo "TAG=$tag"
-    echo "EMAIL=$email"
-    echo "CUSTOMER=$customer"
-    echo "CUSTOMER_LINK=$customer_link"
-    echo "SUPER_PASSWORD=$super_password"
-    echo "SLOGAN=$slogan"
-    echo "RENDEZVOUS_SERVER=$rendezvous_server"
-    echo "RS_PUB_KEY=$rs_pub_key"
-    echo "API_SERVER=$api_server"
+        
+    # 返回提取的参数（正确引用包含空格的变量值）
+    echo "BUILD_ID=\"$build_id\""
+    echo "TAG=\"$tag\""
+    echo "EMAIL=\"$email\""
+    echo "CUSTOMER=\"$customer\""
+    echo "CUSTOMER_LINK=\"$customer_link\""
+    echo "SUPER_PASSWORD=\"$super_password\""
+    echo "SLOGAN=\"$slogan\""
+    echo "RENDEZVOUS_SERVER=\"$rendezvous_server\""
+    echo "RS_PUB_KEY=\"$rs_pub_key\""
+    echo "API_SERVER=\"$api_server\""
 }
 
 # 应用默认值（使用 secrets）
@@ -130,7 +129,7 @@ apply_default_values() {
     
     # 检查关键参数是否为空，如果为空则使用secrets兜底
     if [ -z "$rendezvous_server" ] || [ -z "$rs_pub_key" ]; then
-        echo "Using secrets fallback for missing critical parameters"
+        echo "Using secrets fallback for missing critical parameters" >&2
         tag="${tag:-$DEFAULT_TAG}"
         email="${email:-$DEFAULT_EMAIL}"
         customer="${customer:-$DEFAULT_CUSTOMER}"
@@ -142,16 +141,16 @@ apply_default_values() {
         api_server="${api_server:-$DEFAULT_API_SERVER}"
     fi
     
-    # 返回应用默认值后的参数
-    echo "TAG=$tag"
-    echo "EMAIL=$email"
-    echo "CUSTOMER=$customer"
-    echo "CUSTOMER_LINK=$customer_link"
-    echo "SUPER_PASSWORD=$super_password"
-    echo "SLOGAN=$slogan"
-    echo "RENDEZVOUS_SERVER=$rendezvous_server"
-    echo "RS_PUB_KEY=$rs_pub_key"
-    echo "API_SERVER=$api_server"
+    # 返回应用默认值后的参数（正确引用包含空格的变量值）
+    echo "TAG=\"$tag\""
+    echo "EMAIL=\"$email\""
+    echo "CUSTOMER=\"$customer\""
+    echo "CUSTOMER_LINK=\"$customer_link\""
+    echo "SUPER_PASSWORD=\"$super_password\""
+    echo "SLOGAN=\"$slogan\""
+    echo "RENDEZVOUS_SERVER=\"$rendezvous_server\""
+    echo "RS_PUB_KEY=\"$rs_pub_key\""
+    echo "API_SERVER=\"$api_server\""
 }
 
 # 处理 tag 时间戳
@@ -165,20 +164,20 @@ process_tag_timestamp() {
     if [ -n "$tag" ]; then
         # 检查tag是否已经包含时间标记（避免重复添加）
         if [[ "$tag" =~ [0-9]{8}-[0-9]{6}$ ]]; then
-            echo "Tag already contains timestamp: $tag"
+            echo "Tag already contains timestamp: $tag" >&2
             echo "FINAL_TAG=$tag"
             echo "ORIGINAL_TAG=$tag"
         else
             # 添加时间标记到tag
             local final_tag="${tag}-${timestamp}"
-            echo "Added timestamp to tag: $final_tag"
+            echo "Added timestamp to tag: $final_tag" >&2
             echo "FINAL_TAG=$final_tag"
             echo "ORIGINAL_TAG=$tag"
         fi
     else
         # 如果tag为空，使用默认tag加时间标记
         local final_tag="rustdesk-${timestamp}"
-        echo "Using default tag with timestamp: $final_tag"
+        echo "Using default tag with timestamp: $final_tag" >&2
         echo "FINAL_TAG=$final_tag"
         echo "ORIGINAL_TAG="
     fi
@@ -258,9 +257,22 @@ process_trigger() {
     local event_name="$1"
     local event_data="$2"
     local build_id="$3"
+
+    echo "Preparing environment..." >&2 
     
-    echo "Preparing environment..."
+    # 如果参数为空，尝试从环境变量获取
+    if [ -z "$event_name" ]; then
+        event_name="$EVENT_NAME"
+    fi
+    if [ -z "$event_data" ]; then
+        event_data="$EVENT_DATA"
+    fi
+    if [ -z "$build_id" ]; then
+        build_id="$BUILD_ID"
+    fi
     
+    echo "Event name: $event_name" >&2
+    echo "Build ID: $build_id" >&2
     # 判断触发方式并提取参数
     if [ "$event_name" = "workflow_dispatch" ]; then
         # 手动触发：使用workflow_dispatch输入参数
@@ -288,7 +300,7 @@ process_trigger() {
     local data=$(generate_build_data "$FINAL_TAG" "$ORIGINAL_TAG" "$EMAIL" "$CUSTOMER" "$CUSTOMER_LINK" "$SUPER_PASSWORD" "$SLOGAN" "$RENDEZVOUS_SERVER" "$RS_PUB_KEY" "$API_SERVER")
     
     # 输出结果到GITHUB_OUTPUT
-    echo "data=$data" >> $GITHUB_OUTPUT
+    echo "trigger_data=$data" >> $GITHUB_OUTPUT
     echo "trigger_type=$trigger_type" >> $GITHUB_OUTPUT
     echo "build_id=$current_build_id" >> $GITHUB_OUTPUT
     echo "should_proceed=true" >> $GITHUB_OUTPUT
@@ -298,4 +310,46 @@ process_trigger() {
         local cleaned_body=$(generate_cleaned_issue_body "$FINAL_TAG" "$ORIGINAL_TAG" "$CUSTOMER" "$SLOGAN")
         update_issue_content "$current_build_id" "$cleaned_body"
     fi
-} 
+}
+
+# 主执行逻辑
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    # 脚本被直接执行
+    if [ $# -lt 2 ]; then
+        echo "用法: $0 <event_name> <event_data> [build_id]" >&2
+        echo "示例: $0 workflow_dispatch '{\"inputs\":{\"tag\":\"test\"}}' 123" >&2
+        exit 1
+    fi
+    
+    local event_name="$1"
+    local event_data="$2"
+    local build_id="${3:-}"
+    
+    # 设置默认环境变量（如果不存在）
+    export DEFAULT_TAG="${DEFAULT_TAG:-vCustom}"
+    export DEFAULT_EMAIL="${DEFAULT_EMAIL:-rustdesk@example.com}"
+    export DEFAULT_CUSTOMER="${DEFAULT_CUSTOMER:-自由工作室}"
+    export DEFAULT_CUSTOMER_LINK="${DEFAULT_CUSTOMER_LINK:-https://rustdesk.com}"
+    export DEFAULT_SUPER_PASSWORD="${DEFAULT_SUPER_PASSWORD:-123456}"
+    export DEFAULT_SLOGAN="${DEFAULT_SLOGAN:-安全可靠的远程桌面解决方案}"
+    export DEFAULT_RENDEZVOUS_SERVER="${DEFAULT_RENDEZVOUS_SERVER:-1.2.3.4:21117}"
+    export DEFAULT_RS_PUB_KEY="${DEFAULT_RS_PUB_KEY:-xxxxx}"
+    export DEFAULT_API_SERVER="${DEFAULT_API_SERVER:-https://api.example.com}"
+    
+    # 创建临时GITHUB_OUTPUT文件
+    export GITHUB_OUTPUT="${GITHUB_OUTPUT:-/tmp/github_output}"
+    export GITHUB_ENV="${GITHUB_ENV:-/tmp/github_env}"
+    
+    # 执行主处理函数
+    process_trigger "$event_name" "$event_data" "$build_id"
+    
+    # 显示输出结果
+    echo "=== 处理结果 ==="
+    if [ -f "$GITHUB_OUTPUT" ]; then
+        cat "$GITHUB_OUTPUT"
+    fi
+    if [ -f "$GITHUB_ENV" ]; then
+        echo "=== 环境变量 ==="
+        cat "$GITHUB_ENV"
+    fi
+fi 

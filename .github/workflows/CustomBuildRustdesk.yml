@@ -66,7 +66,12 @@ jobs:
         id: trigger
         run: |
           source .github/workflows/scripts/trigger.sh
-          process_trigger "${{ github.event_name }}" "${{ toJSON(github.event) }}" "${{ github.run_id }}"
+          # 使用环境变量传递事件数据，避免命令行参数过长
+          export EVENT_NAME="${{ github.event_name }}"
+          export EVENT_DATA='${{ toJSON(github.event) }}'
+          export BUILD_ID="${{ github.run_id }}"
+          # 传递完整事件数据，脚本内部根据事件类型处理
+          process_trigger "$EVENT_NAME" "$EVENT_DATA" "$BUILD_ID"
           
   # 01-审查验证
   review:
