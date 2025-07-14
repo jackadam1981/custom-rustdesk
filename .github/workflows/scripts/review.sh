@@ -15,35 +15,46 @@ check_private_ip() {
         return 1
     fi
     
+    # 移除协议前缀（http:// 或 https://）
+    local clean_ip="$ip"
+    if [[ "$ip" =~ ^https?:// ]]; then
+        clean_ip="${ip#*://}"
+    fi
+    
+    # 移除端口号（如果存在）
+    if [[ "$clean_ip" =~ :[0-9]+$ ]]; then
+        clean_ip="${clean_ip%:*}"
+    fi
+    
     # 检查是否为域名（包含字母）
-    if [[ "$ip" =~ [a-zA-Z] ]]; then
-        echo "Domain detected: $ip"
+    if [[ "$clean_ip" =~ [a-zA-Z] ]]; then
+        echo "Domain detected: $clean_ip"
         return 1  # 域名不是私有IP
     fi
     
     # 检查私有IP地址范围
     # 10.0.0.0/8
-    if [[ "$ip" =~ ^10\. ]]; then
+    if [[ "$clean_ip" =~ ^10\. ]]; then
         return 0
     fi
     
     # 172.16.0.0/12
-    if [[ "$ip" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]]; then
+    if [[ "$clean_ip" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]]; then
         return 0
     fi
     
     # 192.168.0.0/16
-    if [[ "$ip" =~ ^192\.168\. ]]; then
+    if [[ "$clean_ip" =~ ^192\.168\. ]]; then
         return 0
     fi
     
     # 127.0.0.0/8 (localhost)
-    if [[ "$ip" =~ ^127\. ]]; then
+    if [[ "$clean_ip" =~ ^127\. ]]; then
         return 0
     fi
     
     # 169.254.0.0/16 (link-local)
-    if [[ "$ip" =~ ^169\.254\. ]]; then
+    if [[ "$clean_ip" =~ ^169\.254\. ]]; then
         return 0
     fi
     
@@ -64,12 +75,14 @@ validate_server_parameters() {
     fi
     
     # 验证服务器地址格式（基本格式检查）
+    # 支持IP地址、域名，可选端口号，API服务器支持http/https协议
     if [[ ! "$rendezvous_server" =~ ^[A-Za-z0-9.-]+(:[0-9]+)?$ ]]; then
         echo "Rendezvous服务器地址格式无效: $rendezvous_server"
         return 1
     fi
     
-    if [[ ! "$api_server" =~ ^[A-Za-z0-9.-]+(:[0-9]+)?$ ]]; then
+    # API服务器支持http/https协议前缀
+    if [[ ! "$api_server" =~ ^(https?://)?[A-Za-z0-9.-]+(:[0-9]+)?$ ]]; then
         echo "API服务器地址格式无效: $api_server"
         return 1
     fi
@@ -94,41 +107,45 @@ setup_review_data() {
 extract_and_validate_data() {
     local input="$1"
     
-    # 调试：输出原始数据    echo "Raw input data:"
-    echo "$input"
+    # 调试：输出原始数据（重定向到stderr避免干扰JSON解析）
+    echo "Raw input data:" >&2
+    echo "$input" >&2
     
-    # 处理双重转义的JSON字符串    # 如果输入是字符串形式的JSON，需要先解析
+    # 处理双重转义的JSON字符串    
+    # 如果输入是字符串形式的JSON，需要先解析
     if [[ "$input" == \"*\" ]]; then
-        echo "Detected string-wrapped JSON, parsing..."
+        echo "Detected string-wrapped JSON, parsing..." >&2
         local parsed_input=$(echo "$input" | jq -r .)
-        echo "Parsed input:"
-        echo "$parsed_input"
+        echo "Parsed input:" >&2
+        echo "$parsed_input" >&2
     else
         local parsed_input="$input"
     fi
     
     # 验证JSON格式
-    echo "Validating JSON format..."
+    echo "Validating JSON format..." >&2
     echo "$parsed_input" | jq . > /dev/null
-    echo "JSON validation passed"
+    echo "JSON validation passed" >&2
     
     # 提取服务器地址
     local rendezvous_server=$(echo "$parsed_input" | jq -r '.rendezvous_server // empty')
     local api_server=$(echo "$parsed_input" | jq -r '.api_server // empty')
     local email=$(echo "$parsed_input" | jq -r '.email // empty')
     
-    # 设置环境变量供后续步骤使�?    echo "RENDEZVOUS_SERVER=$rendezvous_server" >> $GITHUB_ENV
+    # 设置环境变量供后续步骤使用
+    echo "RENDEZVOUS_SERVER=$rendezvous_server" >> $GITHUB_ENV
     echo "API_SERVER=$api_server" >> $GITHUB_ENV
     echo "EMAIL=$email" >> $GITHUB_ENV
     echo "CURRENT_DATA=$parsed_input" >> $GITHUB_ENV
     
-    # 调试输出
-    echo "Extracted data:"
-    echo "RENDEZVOUS_SERVER: $rendezvous_server"
-    echo "API_SERVER: $api_server"
-    echo "EMAIL: $email"
+    # 调试输出（重定向到stderr避免干扰JSON解析）
+    echo "Extracted data:" >&2
+    echo "RENDEZVOUS_SERVER: $rendezvous_server" >&2
+    echo "API_SERVER: $api_server" >&2
+    echo "EMAIL: $email" >&2
     
-    # 返回提取的数�?    echo "RENDEZVOUS_SERVER=$rendezvous_server"
+    # 返回提取的数据
+    echo "RENDEZVOUS_SERVER=$rendezvous_server"
     echo "API_SERVER=$api_server"
     echo "EMAIL=$email"
     echo "PARSED_INPUT=$parsed_input"
@@ -140,7 +157,8 @@ auto_reject_invalid_parameters() {
     local api_server="$2"
     local email="$3"
     
-    # 检查参数是否为空    if [ -z "$rendezvous_server" ] || [ -z "$api_server" ] || [ -z "$email" ]; then
+    # 检查参数是否为空    
+    if [ -z "$rendezvous_server" ] || [ -z "$api_server" ] || [ -z "$email" ]; then
         echo "Missing required parameters"
         echo "RENDEZVOUS_SERVER: $rendezvous_server"
         echo "API_SERVER: $api_server"
@@ -184,7 +202,8 @@ determine_review_requirement() {
     local actor="$3"
     local repo_owner="$4"
     
-    # 默认需要审核    local need_review=true
+    # 默认需要审核    
+    local need_review=true
 
     # 仓库所有者免审核
     if [ "$actor" = "$repo_owner" ]; then
@@ -212,7 +231,8 @@ determine_review_requirement() {
         echo "API server is public IP or domain: $api_server"
     fi
     
-    # 判断是否需要审核    if [ "$need_review" = "false" ]; then
+    # 判断是否需要审核    
+    if [ "$need_review" = "false" ]; then
         echo "Skipping review due to repo owner or private IP check."
     else
         if [ "$rendezvous_private" = "true" ] && [ "$api_private" = "true" ]; then
@@ -224,7 +244,8 @@ determine_review_requirement() {
         fi
     fi
     
-    # 设置审核标记到环境变量，供后续步骤使�?    echo "NEED_REVIEW=$need_review" >> $GITHUB_ENV
+    # 设置审核标记到环境变量，供后续步骤使用
+    echo "NEED_REVIEW=$need_review" >> $GITHUB_ENV
     echo "$need_review"
 }
 
@@ -236,13 +257,15 @@ handle_review_process() {
     
     echo "Review required. Starting review process..."
     
-    # 在issue中添加审核状�?    local review_comment=$(generate_review_comment "$rendezvous_server" "$api_server")
+    # 在issue中添加审核状态
+    local review_comment=$(generate_review_comment "$rendezvous_server" "$api_server")
     
     if [ -n "$original_issue_number" ]; then
         add_issue_comment "$original_issue_number" "$review_comment"
     fi
     
-    # 循环检查审核回�?    local start_time=$(date +%s)
+    # 循环检查审核回复
+    local start_time=$(date +%s)
     local timeout=21600  # 6小时超时
     local approved=false
     local rejected=false
@@ -250,12 +273,15 @@ handle_review_process() {
     while [ $(($(date +%s) - start_time)) -lt $timeout ]; do
         echo "Checking for admin approval... ($(($(date +%s) - start_time))s elapsed)"
         
-        # 获取issue的最新评�?        local comments=$(curl -s \
+        # 获取issue的最新评论
+        local comments=$(curl -s \
             -H "Authorization: token $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/$original_issue_number/comments")
         
-        # 检查是否有管理员回复        # 获取仓库所有者和管理员列表        local repo_owner="$GITHUB_REPOSITORY_OWNER"
+        # 检查是否有管理员回复        
+        # 获取仓库所有者和管理员列表        
+        local repo_owner="$GITHUB_REPOSITORY_OWNER"
         
         # 检查是否有管理员回复（包括仓库所有者）
         if echo "$comments" | jq -e --arg owner "$repo_owner" '.[] | select(.user.login == $owner or .user.login == "admin" or .user.login == "管理员用户名") | select(.body | contains("同意构建"))' > /dev/null; then
@@ -272,7 +298,8 @@ handle_review_process() {
         echo "Latest comments:"
         echo "$comments" | jq -r '.[-3:] | .[] | "User: \(.user.login), Body: \(.body[0:100])..."'
         
-        # 等待30秒后再次检查        sleep 30
+        # 等待30秒后再次检查        
+        sleep 30
     done
     
     if [ "$approved" = true ]; then
@@ -295,7 +322,8 @@ handle_review_process() {
         fi
         
         echo "Build rejected by admin - setting build_approved to false"
-        # 设置构建被拒绝标志        echo "BUILD_REJECTED=true" >> $GITHUB_ENV
+        # 设置构建被拒绝标志        
+        echo "BUILD_REJECTED=true" >> $GITHUB_ENV
         return 1
     else
         echo "Review timeout after 6 hours"
@@ -329,7 +357,7 @@ generate_reject_comment() {
 **拒绝原因** $reason
 $details
 
-**时间�?* $(date '+%Y-%m-%d %H:%M:%S')
+**时间** $(date '+%Y-%m-%d %H:%M:%S')
 请检查参数后重新提交issueEOF
 }
 
@@ -385,13 +413,11 @@ output_data() {
     local build_rejected="$2"
     local build_timeout="$3"
     
-    # 重新获取原始数据并确保JSON格式正确
-    local input="$current_data"
-    
     # 确保输出的是有效的JSON格式
-    echo "data=$input" >> $GITHUB_OUTPUT
+    echo "data=$current_data" >> $GITHUB_OUTPUT
     
-    # 根据标志设置构建批准状态    if [ "$build_rejected" = "true" ]; then
+    # 根据标志设置构建批准状态    
+    if [ "$build_rejected" = "true" ]; then
         echo "validation_passed=false" >> $GITHUB_OUTPUT
         echo "reject_reason=Build was rejected by admin" >> $GITHUB_OUTPUT
         echo "Build was rejected by admin"
@@ -406,11 +432,11 @@ output_data() {
     fi
     
     # 显示输出信息
-    echo "Review output: $input"
+    echo "Review output: $current_data"
     
     # 验证输出的JSON格式
     echo "Validating output JSON format..."
-    echo "$input" | jq . > /dev/null
+    echo "$current_data" | jq . > /dev/null
     echo "Output JSON validation passed"
 }
 
@@ -431,7 +457,8 @@ process_review() {
     # 设置审核数据
     setup_review_data "$trigger_output"
     
-    # 提取和验证数据    local extracted_data=$(extract_and_validate_data "$trigger_output")
+    # 提取和验证数据    
+    local extracted_data=$(extract_and_validate_data "$trigger_output")
     eval "$extracted_data"
     
     # 自动拒绝无效参数
@@ -439,7 +466,8 @@ process_review() {
         return 1
     fi
     
-    # 确定是否需要审核    local need_review=$(determine_review_requirement "$RENDEZVOUS_SERVER" "$API_SERVER" "$actor" "$repo_owner")
+    # 确定是否需要审核    
+    local need_review=$(determine_review_requirement "$RENDEZVOUS_SERVER" "$API_SERVER" "$actor" "$repo_owner")
     
     # 如果需要审核，处理审核流程
     if [ "$need_review" = "true" ]; then
