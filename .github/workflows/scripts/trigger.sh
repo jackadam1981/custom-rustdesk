@@ -5,6 +5,7 @@
 # 加载依赖脚本
 source .github/workflows/scripts/issue-templates.sh
 source .github/workflows/scripts/issue-manager.sh
+source .github/workflows/scripts/json-validator.sh
 
 # 从 workflow_dispatch 事件中提取参数
 extract_workflow_dispatch_params() {
@@ -299,8 +300,16 @@ process_trigger() {
     # 生成构建数据
     local data=$(generate_build_data "$FINAL_TAG" "$ORIGINAL_TAG" "$EMAIL" "$CUSTOMER" "$CUSTOMER_LINK" "$SUPER_PASSWORD" "$SLOGAN" "$RENDEZVOUS_SERVER" "$RS_PUB_KEY" "$API_SERVER")
     
+    # 校验生成的JSON数据
+    if ! validate_json_detailed "$data" "trigger.sh-生成构建数据"; then
+        echo "错误: trigger.sh生成的JSON格式不正确" >&2
+        exit 1
+    fi
+    
     # 输出结果到GITHUB_OUTPUT
-    echo "trigger_data=$data" >> $GITHUB_OUTPUT
+    echo "trigger_data<<EOF" >> $GITHUB_OUTPUT
+    echo "$data" >> $GITHUB_OUTPUT
+    echo "EOF" >> $GITHUB_OUTPUT
     echo "trigger_type=$trigger_type" >> $GITHUB_OUTPUT
     echo "build_id=$current_build_id" >> $GITHUB_OUTPUT
     echo "should_proceed=true" >> $GITHUB_OUTPUT

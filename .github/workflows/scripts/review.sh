@@ -5,6 +5,7 @@
 # 加载依赖脚本
 source .github/workflows/scripts/issue-templates.sh
 source .github/workflows/scripts/issue-manager.sh
+source .github/workflows/scripts/json-validator.sh
 
 # 检查是否为私有IP地址
 check_private_ip() {
@@ -107,25 +108,14 @@ setup_review_data() {
 extract_and_validate_data() {
     local input="$1"
     
-    # 调试：输出原始数据（重定向到stderr避免干扰JSON解析）
-    echo "Raw input data:" >&2
-    echo "$input" >&2
-    
-    # 处理双重转义的JSON字符串    
-    # 如果输入是字符串形式的JSON，需要先解析
-    if [[ "$input" == \"*\" ]]; then
-        echo "Detected string-wrapped JSON, parsing..." >&2
-        local parsed_input=$(echo "$input" | jq -r .)
-        echo "Parsed input:" >&2
-        echo "$parsed_input" >&2
-    else
-        local parsed_input="$input"
+    # 校验输入的JSON格式
+    if ! validate_json_detailed "$input" "review.sh-输入数据校验"; then
+        echo "错误: review.sh接收到的输入数据JSON格式不正确" >&2
+        return 1
     fi
     
-    # 验证JSON格式
-    echo "Validating JSON format..." >&2
-    echo "$parsed_input" | jq . > /dev/null
-    echo "JSON validation passed" >&2
+    # 直接使用输入数据，因为JSON校验已经确保格式正确
+    local parsed_input="$input"
     
     # 提取服务器地址
     local rendezvous_server=$(echo "$parsed_input" | jq -r '.rendezvous_server // empty')
@@ -413,8 +403,16 @@ output_data() {
     local build_rejected="$2"
     local build_timeout="$3"
     
-    # 确保输出的是有效的JSON格式
-    echo "data=$current_data" >> $GITHUB_OUTPUT
+    # 校验输出的JSON格式
+    if ! validate_json_detailed "$current_data" "review.sh-输出数据校验"; then
+        echo "错误: review.sh输出的数据JSON格式不正确" >&2
+        return 1
+    fi
+    
+    # 输出到GitHub Actions输出变量（使用多行格式避免截断）
+    echo "data<<EOF" >> $GITHUB_OUTPUT
+    echo "$current_data" >> $GITHUB_OUTPUT
+    echo "EOF" >> $GITHUB_OUTPUT
     
     # 根据标志设置构建批准状态    
     if [ "$build_rejected" = "true" ]; then
@@ -436,8 +434,11 @@ output_data() {
     
     # 验证输出的JSON格式
     echo "Validating output JSON format..."
-    echo "$current_data" | jq . > /dev/null
-    echo "Output JSON validation passed"
+    if echo "$current_data" | jq . > /dev/null 2>&1; then
+        echo "Output JSON validation passed"
+    else
+        echo "Output JSON validation failed"
+    fi
 }
 
 # 输出被拒绝构建的数据

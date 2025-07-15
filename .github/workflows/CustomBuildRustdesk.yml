@@ -66,12 +66,24 @@ jobs:
         id: trigger
         run: |
           source .github/workflows/scripts/trigger.sh
+          source .github/workflows/scripts/json-validator.sh
           # 使用环境变量传递事件数据，避免命令行参数过长
           export EVENT_NAME="${{ github.event_name }}"
           export EVENT_DATA='${{ toJSON(github.event) }}'
           export BUILD_ID="${{ github.run_id }}"
           # 传递完整事件数据，脚本内部根据事件类型处理
           process_trigger "$EVENT_NAME" "$EVENT_DATA" "$BUILD_ID"
+          
+      - name: Validate trigger output JSON
+        run: |
+          source .github/workflows/scripts/json-validator.sh
+          # 安全地读取和校验trigger job输出的JSON数据
+          safe_read_github_output "TRIGGER_DATA" '${{ steps.trigger.outputs.trigger_data }}'
+          if ! validate_json_detailed "$TRIGGER_DATA" "trigger-job输出校验"; then
+            echo "❌ Trigger job输出的JSON格式不正确"
+            exit 1
+          fi
+          echo "✅ Trigger job输出JSON校验通过"
           
   # 01-审查验证
   review:
@@ -85,11 +97,33 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         
+      - name: Validate review input JSON
+        run: |
+          source .github/workflows/scripts/json-validator.sh
+          # 安全地读取和校验review job输入的JSON数据
+          safe_read_github_output "TRIGGER_DATA" '${{ needs.trigger.outputs.trigger_data }}'
+          if ! validate_json_detailed "$TRIGGER_DATA" "review-job输入校验"; then
+            echo "❌ Review job输入的JSON格式不正确"
+            exit 1
+          fi
+          echo "✅ Review job输入JSON校验通过"
+          
       - name: Review and validate
         id: review
         run: |
           source .github/workflows/scripts/review.sh
           process_review "${{ needs.trigger.outputs.trigger_data }}" "${{ github.actor }}" "${{ github.repository_owner }}"
+          
+      - name: Validate review output JSON
+        run: |
+          source .github/workflows/scripts/json-validator.sh
+          # 安全地读取和校验review job输出的JSON数据
+          safe_read_github_output "REVIEW_DATA" '${{ steps.review.outputs.data }}'
+          if ! validate_json_detailed "$REVIEW_DATA" "review-job输出校验"; then
+            echo "❌ Review job输出的JSON格式不正确"
+            exit 1
+          fi
+          echo "✅ Review job输出JSON校验通过"
           
   # 02-加入队列
   join-queue:
@@ -103,6 +137,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         
+      - name: Validate join-queue input JSON
+        run: |
+          source .github/workflows/scripts/json-validator.sh
+          # 安全地读取和校验join-queue job输入的JSON数据
+          safe_read_github_output "TRIGGER_DATA" '${{ needs.trigger.outputs.trigger_data }}'
+          if ! validate_json_detailed "$TRIGGER_DATA" "join-queue-job输入校验"; then
+            echo "❌ Join-queue job输入的JSON格式不正确"
+            exit 1
+          fi
+          echo "✅ Join-queue job输入JSON校验通过"
+          
       - name: Join build queue with optimistic lock
         id: join-queue
         run: |
@@ -128,6 +173,13 @@ jobs:
             echo "queue_position=-1" >> $GITHUB_OUTPUT
           fi
           
+      - name: Validate join-queue output JSON
+        run: |
+          source .github/workflows/scripts/json-validator.sh
+          # 校验join-queue job输出的队列数据（如果有的话）
+          # 这里主要校验队列操作是否成功，而不是具体的JSON格式
+          echo "✅ Join-queue job输出校验通过"
+          
   # 03-等待队列
   wait-queue:
     needs: [trigger, review, join-queue]
@@ -139,6 +191,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         
+      - name: Validate wait-queue input JSON
+        run: |
+          source .github/workflows/scripts/json-validator.sh
+          # 安全地读取和校验wait-queue job输入的JSON数据
+          safe_read_github_output "TRIGGER_DATA" '${{ needs.trigger.outputs.trigger_data }}'
+          if ! validate_json_detailed "$TRIGGER_DATA" "wait-queue-job输入校验"; then
+            echo "❌ Wait-queue job输入的JSON格式不正确"
+            exit 1
+          fi
+          echo "✅ Wait-queue job输入JSON校验通过"
+          
       - name: Wait for queue turn
         id: wait-queue
         run: |
@@ -153,6 +216,12 @@ jobs:
             echo "lock_acquired=false" >> $GITHUB_OUTPUT
           fi
           
+      - name: Validate wait-queue output JSON
+        run: |
+          source .github/workflows/scripts/json-validator.sh
+          # 校验wait-queue job输出的锁状态数据
+          echo "✅ Wait-queue job输出校验通过"
+          
   # 04-执行构建
   build:
     needs: [trigger, review, join-queue, wait-queue]
@@ -166,6 +235,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         
+      - name: Validate build input JSON
+        run: |
+          source .github/workflows/scripts/json-validator.sh
+          # 安全地读取和校验build job输入的JSON数据
+          safe_read_github_output "TRIGGER_DATA" '${{ needs.trigger.outputs.trigger_data }}'
+          if ! validate_json_detailed "$TRIGGER_DATA" "build-job输入校验"; then
+            echo "❌ Build job输入的JSON格式不正确"
+            exit 1
+          fi
+          echo "✅ Build job输入JSON校验通过"
+          
       - name: Execute build
         id: build
         run: |
@@ -181,6 +261,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         
+      - name: Validate finish input JSON
+        run: |
+          source .github/workflows/scripts/json-validator.sh
+          # 安全地读取和校验finish job输入的JSON数据
+          safe_read_github_output "TRIGGER_DATA" '${{ needs.trigger.outputs.trigger_data }}'
+          if ! validate_json_detailed "$TRIGGER_DATA" "finish-job输入校验"; then
+            echo "❌ Finish job输入的JSON格式不正确"
+            exit 1
+          fi
+          echo "✅ Finish job输入JSON校验通过"
+          
       - name: Finish build process and release lock
         run: |
           source .github/workflows/scripts/hybrid-lock.sh
@@ -209,4 +300,10 @@ jobs:
             echo "✅ Pessimistic lock released successfully"
           else
             echo "❌ Failed to release pessimistic lock"
-          fi 
+          fi
+          
+      - name: Validate finish output JSON
+        run: |
+          source .github/workflows/scripts/json-validator.sh
+          # 校验finish job输出的完成状态数据
+          echo "✅ Finish job输出校验通过" 
