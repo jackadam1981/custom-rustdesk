@@ -5,7 +5,8 @@
 # 加载依赖脚本
 source .github/workflows/scripts/issue-templates.sh
 source .github/workflows/scripts/issue-manager.sh
-source .github/workflows/scripts/json-validator.sh
+
+
 
 # 检查是否为私有IP地址
 check_private_ip() {
@@ -104,17 +105,14 @@ setup_review_data() {
     echo "TRIGGER_OUTPUT=$trigger_output" >> $GITHUB_ENV
 }
 
-# 提取和验证数据
+# 提取数据
 extract_and_validate_data() {
     local input="$1"
     
-    # 校验输入的JSON格式
-    if ! validate_json_detailed "$input" "review.sh-输入数据校验"; then
-        echo "错误: review.sh接收到的输入数据JSON格式不正确" >&2
-        return 1
-    fi
+    # 简单输出接收到的数据（重定向到stderr避免被当作变量赋值）
+    echo "Review.sh接收到输入数据" >&2
     
-    # 直接使用输入数据，因为JSON校验已经确保格式正确
+    # 直接使用输入数据
     local parsed_input="$input"
     
     # 提取服务器地址
@@ -403,11 +401,8 @@ output_data() {
     local build_rejected="$2"
     local build_timeout="$3"
     
-    # 校验输出的JSON格式
-    if ! validate_json_detailed "$current_data" "review.sh-输出数据校验"; then
-        echo "错误: review.sh输出的数据JSON格式不正确" >&2
-        return 1
-    fi
+    # 简单输出数据（重定向到stderr避免被当作变量赋值）
+    echo "Review.sh输出数据" >&2
     
     # 输出到GitHub Actions输出变量（使用多行格式避免截断）
     echo "data<<EOF" >> $GITHUB_OUTPUT
@@ -431,14 +426,6 @@ output_data() {
     
     # 显示输出信息
     echo "Review output: $current_data"
-    
-    # 验证输出的JSON格式
-    echo "Validating output JSON format..."
-    if echo "$current_data" | jq . > /dev/null 2>&1; then
-        echo "Output JSON validation passed"
-    else
-        echo "Output JSON validation failed"
-    fi
 }
 
 # 输出被拒绝构建的数据
@@ -460,7 +447,16 @@ process_review() {
     
     # 提取和验证数据    
     local extracted_data=$(extract_and_validate_data "$trigger_output")
-    eval "$extracted_data"
+    # 安全地设置变量，避免eval破坏JSON格式
+    while IFS='=' read -r var_name var_value; do
+        if [[ "$var_name" == "PARSED_INPUT" ]]; then
+            # 对于JSON数据，使用printf安全设置
+            printf -v "$var_name" '%s' "$var_value"
+        else
+            # 对于普通变量，直接设置
+            eval "$var_name=\"$var_value\""
+        fi
+    done <<< "$extracted_data"
     
     # 自动拒绝无效参数
     if ! auto_reject_invalid_parameters "$RENDEZVOUS_SERVER" "$API_SERVER" "$EMAIL"; then
