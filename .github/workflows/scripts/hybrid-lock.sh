@@ -34,13 +34,6 @@ update_queue_issue() {
     echo "Repository: $GITHUB_REPOSITORY"
     echo "Token available: $([ -n "$GITHUB_TOKEN" ] && echo "yes" || echo "no")"
     
-    # 在测试环境中模拟成功
-    if [ "$GITHUB_TOKEN" = "test_token" ] || [ "$GITHUB_TOKEN" = "***" ]; then
-        echo "Test environment detected, simulating successful update"
-        echo '{"id": 12345, "number": '"$issue_number"', "body": "updated"}'
-        return 0
-    fi
-    
     # 实际更新
     local response=$(curl -s -w "\n%{http_code}" -X PATCH \
         -H "Authorization: token $GITHUB_TOKEN" \
@@ -169,7 +162,7 @@ join_queue_optimistic() {
         local update_response=$(update_queue_issue_with_hybrid_lock "1" "$new_queue_data" "占用 🔒" "空闲 🔓")
         
         # 验证更新是否成功
-        if echo "$update_response" | jq -e '.id' > /dev/null 2>&1 || [ "$GITHUB_TOKEN" = "test_token" ] || [ "$GITHUB_TOKEN" = "***" ]; then
+        if echo "$update_response" | jq -e '.id' > /dev/null 2>&1; then
             local queue_position=$((queue_length + 1))
             echo "Successfully joined queue at position $queue_position"
             
