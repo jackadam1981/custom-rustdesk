@@ -98,10 +98,12 @@ jobs:
         uses: actions/checkout@v4
         
       - name: Validate review input JSON
+        env:
+          TRIGGER_DATA: ${{ needs.trigger.outputs.trigger_data }}
         run: |
           source .github/workflows/scripts/json-validator.sh
           # 安全地读取和校验review job输入的JSON数据
-          safe_read_github_output "TRIGGER_DATA" '${{ needs.trigger.outputs.trigger_data }}'
+          safe_read_github_output "TRIGGER_DATA" "$TRIGGER_DATA"
           if ! validate_json_detailed "$TRIGGER_DATA" "review-job输入校验"; then
             echo "❌ Review job输入的JSON格式不正确"
             exit 1
@@ -110,15 +112,19 @@ jobs:
           
       - name: Review and validate
         id: review
+        env:
+          TRIGGER_DATA: ${{ needs.trigger.outputs.trigger_data }}
         run: |
           source .github/workflows/scripts/review.sh
-          process_review "${{ needs.trigger.outputs.trigger_data }}" "${{ github.actor }}" "${{ github.repository_owner }}"
+          process_review "$TRIGGER_DATA" "${{ github.actor }}" "${{ github.repository_owner }}"
           
       - name: Validate review output JSON
+        env:
+          REVIEW_DATA: ${{ steps.review.outputs.data }}
         run: |
           source .github/workflows/scripts/json-validator.sh
           # 安全地读取和校验review job输出的JSON数据
-          safe_read_github_output "REVIEW_DATA" '${{ steps.review.outputs.data }}'
+          safe_read_github_output "REVIEW_DATA" "$REVIEW_DATA"
           if ! validate_json_detailed "$REVIEW_DATA" "review-job输出校验"; then
             echo "❌ Review job输出的JSON格式不正确"
             exit 1
@@ -129,6 +135,8 @@ jobs:
   join-queue:
     needs: [trigger, review]
     if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.validation_passed == 'true'
+    env:
+      TRIGGER_DATA: ${{ needs.trigger.outputs.trigger_data }}
     runs-on: ubuntu-latest
     outputs:
       join_success: ${{ steps.join-queue.outputs.join_success }}
@@ -138,10 +146,12 @@ jobs:
         uses: actions/checkout@v4
         
       - name: Validate join-queue input JSON
+        env: 
+          TRIGGER_DATA: ${{ needs.trigger.outputs.trigger_data }}
         run: |
           source .github/workflows/scripts/json-validator.sh
           # 安全地读取和校验join-queue job输入的JSON数据
-          safe_read_github_output "TRIGGER_DATA" '${{ needs.trigger.outputs.trigger_data }}'
+          safe_read_github_output "TRIGGER_DATA" "$TRIGGER_DATA"
           if ! validate_json_detailed "$TRIGGER_DATA" "join-queue-job输入校验"; then
             echo "❌ Join-queue job输入的JSON格式不正确"
             exit 1
@@ -150,6 +160,8 @@ jobs:
           
       - name: Join build queue with optimistic lock
         id: join-queue
+        env:
+          TRIGGER_DATA: ${{ needs.trigger.outputs.trigger_data }}
         run: |
           source .github/workflows/scripts/hybrid-lock.sh
           source .github/workflows/scripts/issue-manager.sh
@@ -159,7 +171,7 @@ jobs:
           main_hybrid_lock "join_queue" \
                           "${{ needs.trigger.outputs.build_id }}" \
                           "${{ needs.trigger.outputs.trigger_type }}" \
-                          "${{ needs.trigger.outputs.trigger_data }}" \
+                          "$TRIGGER_DATA" \
                           "5"
           
           # 检查加入结果
@@ -174,11 +186,17 @@ jobs:
           fi
           
       - name: Validate join-queue output JSON
+        env:
+          JOIN_QUEUE_DATA: ${{ steps.join-queue.outputs.data }}
         run: |
           source .github/workflows/scripts/json-validator.sh
-          # 校验join-queue job输出的队列数据（如果有的话）
-          # 这里主要校验队列操作是否成功，而不是具体的JSON格式
-          echo "✅ Join-queue job输出校验通过"
+          # 安全地读取和校验join-queue job输出的JSON数据
+          safe_read_github_output "JOIN_QUEUE_DATA" "$JOIN_QUEUE_DATA"
+          if ! validate_json_detailed "$JOIN_QUEUE_DATA" "join-queue-job输出校验"; then
+            echo "❌ Join-queue job输出的JSON格式不正确"
+            exit 1
+          fi
+          echo "✅ Join-queue job输出JSON校验通过"
           
   # 03-等待队列
   wait-queue:
@@ -192,10 +210,12 @@ jobs:
         uses: actions/checkout@v4
         
       - name: Validate wait-queue input JSON
+        env:
+          TRIGGER_DATA: ${{ needs.trigger.outputs.trigger_data }}
         run: |
           source .github/workflows/scripts/json-validator.sh
           # 安全地读取和校验wait-queue job输入的JSON数据
-          safe_read_github_output "TRIGGER_DATA" '${{ needs.trigger.outputs.trigger_data }}'
+          safe_read_github_output "TRIGGER_DATA" "$TRIGGER_DATA"
           if ! validate_json_detailed "$TRIGGER_DATA" "wait-queue-job输入校验"; then
             echo "❌ Wait-queue job输入的JSON格式不正确"
             exit 1
@@ -217,10 +237,17 @@ jobs:
           fi
           
       - name: Validate wait-queue output JSON
+        env:
+          WAIT_QUEUE_DATA: ${{ steps.wait-queue.outputs.data }}
         run: |
           source .github/workflows/scripts/json-validator.sh
-          # 校验wait-queue job输出的锁状态数据
-          echo "✅ Wait-queue job输出校验通过"
+          # 安全地读取和校验wait-queue job输出的JSON数据
+          safe_read_github_output "WAIT_QUEUE_DATA" "$WAIT_QUEUE_DATA"
+          if ! validate_json_detailed "$WAIT_QUEUE_DATA" "wait-queue-job输出校验"; then
+            echo "❌ Wait-queue job输出的JSON格式不正确"
+            exit 1
+            fi
+          echo "✅ Wait-queue job输出JSON校验通过"
           
   # 04-执行构建
   build:
@@ -236,10 +263,12 @@ jobs:
         uses: actions/checkout@v4
         
       - name: Validate build input JSON
+        env:
+          TRIGGER_DATA: ${{ needs.trigger.outputs.trigger_data }}
         run: |
           source .github/workflows/scripts/json-validator.sh
           # 安全地读取和校验build job输入的JSON数据
-          safe_read_github_output "TRIGGER_DATA" '${{ needs.trigger.outputs.trigger_data }}'
+          safe_read_github_output "TRIGGER_DATA" "$TRIGGER_DATA"
           if ! validate_json_detailed "$TRIGGER_DATA" "build-job输入校验"; then
             echo "❌ Build job输入的JSON格式不正确"
             exit 1
@@ -248,9 +277,11 @@ jobs:
           
       - name: Execute build
         id: build
+        env:
+          TRIGGER_DATA: ${{ needs.trigger.outputs.trigger_data }}
         run: |
           source .github/workflows/scripts/build.sh
-          process_build "${{ needs.trigger.outputs.trigger_data }}"
+          process_build "$TRIGGER_DATA"
           
   # 05-完成处理
   finish:
@@ -262,10 +293,12 @@ jobs:
         uses: actions/checkout@v4
         
       - name: Validate finish input JSON
+        env:
+          TRIGGER_DATA: ${{ needs.trigger.outputs.trigger_data }}
         run: |
           source .github/workflows/scripts/json-validator.sh
           # 安全地读取和校验finish job输入的JSON数据
-          safe_read_github_output "TRIGGER_DATA" '${{ needs.trigger.outputs.trigger_data }}'
+          safe_read_github_output "TRIGGER_DATA" "$TRIGGER_DATA"
           if ! validate_json_detailed "$TRIGGER_DATA" "finish-job输入校验"; then
             echo "❌ Finish job输入的JSON格式不正确"
             exit 1
@@ -303,7 +336,14 @@ jobs:
           fi
           
       - name: Validate finish output JSON
+        env:
+          FINISH_DATA: ${{ steps.finish.outputs.data }}
         run: |
           source .github/workflows/scripts/json-validator.sh
-          # 校验finish job输出的完成状态数据
-          echo "✅ Finish job输出校验通过" 
+          # 安全地读取和校验finish job输出的JSON数据
+          safe_read_github_output "FINISH_DATA" "$FINISH_DATA"
+          if ! validate_json_detailed "$FINISH_DATA" "finish-job输出校验"; then
+            echo "❌ Finish job输出的JSON格式不正确"
+            exit 1
+          fi
+          echo "✅ Finish job输出JSON校验通过" 

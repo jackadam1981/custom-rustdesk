@@ -441,6 +441,8 @@ process_review() {
     local trigger_output="$1"
     local actor="$2"
     local repo_owner="$3"
+
+    echo "原始输入: $trigger_output" >&2
     
     # 设置审核数据
     setup_review_data "$trigger_output"
