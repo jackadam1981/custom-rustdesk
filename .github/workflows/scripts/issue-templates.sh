@@ -262,7 +262,8 @@ generate_queue_reset_record() {
 ---
 
 ### 重置记录
-**重置时间：
+**重置时间：** $now
+**重置原因：** $reason
 
 ### 队列数据
 \`\`\`json
@@ -328,7 +329,8 @@ generate_optimistic_lock_notification() {
 **重试次数：** $retry_count
 
 **状态：** 乐观锁操作完成
-**说明：** 使用快速重
+**说明：** 使用快速重试机制，减少等待时间
+EOF
 }
 
 # 生成悲观锁状态通知
