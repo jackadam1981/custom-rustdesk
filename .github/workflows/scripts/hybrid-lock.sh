@@ -13,7 +13,8 @@ LOCK_TIMEOUT_HOURS=2      # 锁超时时间
 # 通用函数：从队列管理issue中提取JSON数据
 extract_queue_json() {
     local issue_content="$1"
-    echo "$issue_content" | jq -r '.body' | grep -oP '```json\s*\K[^{]*\{.*\}' | head -1
+    # 兼容性更好的提取方法，提取 ```json ... ``` 之间的内容
+    echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | sed '1d;$d' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }
 
 # 通用函数：获取队列管理issue内容
@@ -30,9 +31,9 @@ update_queue_issue() {
     local issue_number="$1"
     local body="$2"
     
-    echo "Updating issue $issue_number..."
-    echo "Repository: $GITHUB_REPOSITORY"
-    echo "Token available: $([ -n "$GITHUB_TOKEN" ] && echo "yes" || echo "no")"
+    echo "Updating issue $issue_number..." >&2
+    echo "Repository: $GITHUB_REPOSITORY" >&2
+    echo "Token available: $([ -n "$GITHUB_TOKEN" ] && echo "yes" || echo "no")" >&2
     
     # 实际更新
     local response=$(curl -s -w "\n%{http_code}" -X PATCH \
@@ -41,15 +42,10 @@ update_queue_issue() {
         -H "Content-Type: application/json" \
         "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/$issue_number" \
         -d "$(jq -n --arg body "$body" '{"body": $body}')")
-    
     local http_code=$(echo "$response" | tail -n1)
     local response_body=$(echo "$response" | head -n -1)
-    
-    echo "HTTP Status Code: $http_code"
-    echo "Response: $response_body"
-    
+    echo "$response_body"  # 只输出 JSON
     if [ "$http_code" -eq 200 ] || [ "$http_code" -eq 201 ]; then
-        echo "$response_body"
         return 0
     else
         echo "Failed to update issue. HTTP Code: $http_code" >&2
@@ -75,8 +71,9 @@ update_queue_issue_with_hybrid_lock() {
     source .github/workflows/scripts/issue-templates.sh
     local body=$(generate_hybrid_lock_status_body "$current_time" "$queue_data" "$version" "$optimistic_lock_status" "$pessimistic_lock_status" "$current_build" "$lock_holder")
     
-    # 更新issue
+    # 更新issue并返回结果
     update_queue_issue "$issue_number" "$body"
+    return $?
 }
 
 # 乐观锁：尝试加入队列（快速重试）
@@ -160,7 +157,8 @@ join_queue_optimistic() {
         
         # 尝试更新（使用混合锁模板）
         local update_response=$(update_queue_issue_with_hybrid_lock "1" "$new_queue_data" "占用 🔒" "空闲 🔓")
-        
+        # 调试：输出更新响应
+        echo "[调试] update_response: $update_response"
         # 验证更新是否成功
         if echo "$update_response" | jq -e '.id' > /dev/null 2>&1; then
             local queue_position=$((queue_length + 1))
