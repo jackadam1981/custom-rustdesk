@@ -3,7 +3,7 @@ name: Custom Rustdesk Build Workflow
 on:
   # Issue 触发
   issues:
-    types: [opened, edited]
+    types: [opened]
   
   # 手动触发
   workflow_dispatch:
