@@ -7,6 +7,9 @@ source .github/workflows/scripts/issue-templates.sh
 source .github/workflows/scripts/issue-manager.sh
 source .github/workflows/scripts/json-validator.sh
 
+# GitHub Actions 环境变量设置
+# 这些变量在 GitHub Actions 中自动提供
+
 # 从 workflow_dispatch 事件中提取参数
 extract_workflow_dispatch_params() {
     local event_data="$1"
@@ -60,47 +63,45 @@ extract_issue_params() {
     # 保存原始issue内容供后续使用
     echo "ORIGINAL_ISSUE_BODY=$issue_body" >> $GITHUB_ENV
     
-    # 使用grep和sed提取参数 - 支持多种格式
-    # 格式1: tag: (新格式)
-    # 格式2: --tag: (旧格式)
-    # 格式3: tag=(键值对格式)
-    local tag=$(echo "$issue_body" | grep -oP '(?:^|\n)(?:--)?tag:\s*\K[^\r\n]+' | head -1 || echo "")
-    local email=$(echo "$issue_body" | grep -oP '(?:^|\n)(?:--)?email:\s*\K[^\r\n]+' | head -1 || echo "")
-    local customer=$(echo "$issue_body" | grep -oP '(?:^|\n)(?:--)?customer:\s*\K[^\r\n]+' | head -1 || echo "")
-    local customer_link=$(echo "$issue_body" | grep -oP '(?:^|\n)(?:--)?customer_link:\s*\K[^\r\n]+' | head -1 || echo "")
-    local super_password=$(echo "$issue_body" | grep -oP '(?:^|\n)(?:--)?super_password:\s*\K[^\r\n]+' | head -1 || echo "")
-    local slogan=$(echo "$issue_body" | grep -oP '(?:^|\n)(?:--)?slogan:\s*\K[^\r\n]+' | head -1 || echo "")
-    local rendezvous_server=$(echo "$issue_body" | grep -oP '(?:^|\n)(?:--)?rendezvous_server:\s*\K[^\r\n]+' | head -1 || echo "")
-    local rs_pub_key=$(echo "$issue_body" | grep -oP '(?:^|\n)(?:--)?rs_pub_key:\s*\K[^\r\n]+' | head -1 || echo "")
-    local api_server=$(echo "$issue_body" | grep -oP '(?:^|\n)(?:--)?api_server:\s*\K[^\r\n]+' | head -1 || echo "")
+    # 使用sed和awk提取参数 - 兼容性更好的方法
+    # 支持多种格式：tag: value, --tag: value, tag=value
+    local tag=$(echo "$issue_body" | sed -n 's/.*[[:space:]]*\(--\)\?tag:[[:space:]]*\([^[:space:]\r\n]*\).*/\2/p' | head -1)
+    local email=$(echo "$issue_body" | sed -n 's/.*[[:space:]]*\(--\)\?email:[[:space:]]*\([^[:space:]\r\n]*\).*/\2/p' | head -1)
+    local customer=$(echo "$issue_body" | sed -n 's/.*[[:space:]]*\(--\)\?customer:[[:space:]]*\([^[:space:]\r\n]*\).*/\2/p' | head -1)
+    local customer_link=$(echo "$issue_body" | sed -n 's/.*[[:space:]]*\(--\)\?customer_link:[[:space:]]*\([^[:space:]\r\n]*\).*/\2/p' | head -1)
+    local super_password=$(echo "$issue_body" | sed -n 's/.*[[:space:]]*\(--\)\?super_password:[[:space:]]*\([^[:space:]\r\n]*\).*/\2/p' | head -1)
+    local slogan=$(echo "$issue_body" | sed -n 's/.*[[:space:]]*\(--\)\?slogan:[[:space:]]*\([^[:space:]\r\n]*\).*/\2/p' | head -1)
+    local rendezvous_server=$(echo "$issue_body" | sed -n 's/.*[[:space:]]*\(--\)\?rendezvous_server:[[:space:]]*\([^[:space:]\r\n]*\).*/\2/p' | head -1)
+    local rs_pub_key=$(echo "$issue_body" | sed -n 's/.*[[:space:]]*\(--\)\?rs_pub_key:[[:space:]]*\([^[:space:]\r\n]*\).*/\2/p' | head -1)
+    local api_server=$(echo "$issue_body" | sed -n 's/.*[[:space:]]*\(--\)\?api_server:[[:space:]]*\([^[:space:]\r\n]*\).*/\2/p' | head -1)
     
     # 如果新格式没有找到，尝试旧格式
     if [ -z "$tag" ]; then
-        tag=$(echo "$issue_body" | grep -oP '--tag:\s*\K[^\r\n]+' | head -1 || echo "")
+        tag=$(echo "$issue_body" | sed -n 's/.*--tag:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
     fi
     if [ -z "$email" ]; then
-        email=$(echo "$issue_body" | grep -oP '--email:\s*\K[^\r\n]+' | head -1 || echo "")
+        email=$(echo "$issue_body" | sed -n 's/.*--email:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
     fi
     if [ -z "$customer" ]; then
-        customer=$(echo "$issue_body" | grep -oP '--customer:\s*\K[^\r\n]+' | head -1 || echo "")
+        customer=$(echo "$issue_body" | sed -n 's/.*--customer:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
     fi
     if [ -z "$customer_link" ]; then
-        customer_link=$(echo "$issue_body" | grep -oP '--customer_link:\s*\K[^\r\n]+' | head -1 || echo "")
+        customer_link=$(echo "$issue_body" | sed -n 's/.*--customer_link:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
     fi
     if [ -z "$super_password" ]; then
-        super_password=$(echo "$issue_body" | grep -oP '--super_password:\s*\K[^\r\n]+' | head -1 || echo "")
+        super_password=$(echo "$issue_body" | sed -n 's/.*--super_password:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
     fi
     if [ -z "$slogan" ]; then
-        slogan=$(echo "$issue_body" | grep -oP '--slogan:\s*\K[^\r\n]+' | head -1 || echo "")
+        slogan=$(echo "$issue_body" | sed -n 's/.*--slogan:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
     fi
     if [ -z "$rendezvous_server" ]; then
-        rendezvous_server=$(echo "$issue_body" | grep -oP '--rendezvous_server:\s*\K[^\r\n]+' | head -1 || echo "")
+        rendezvous_server=$(echo "$issue_body" | sed -n 's/.*--rendezvous_server:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
     fi
     if [ -z "$rs_pub_key" ]; then
-        rs_pub_key=$(echo "$issue_body" | grep -oP '--rs_pub_key:\s*\K[^\r\n]+' | head -1 || echo "")
+        rs_pub_key=$(echo "$issue_body" | sed -n 's/.*--rs_pub_key:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
     fi
     if [ -z "$api_server" ]; then
-        api_server=$(echo "$issue_body" | grep -oP '--api_server:\s*\K[^\r\n]+' | head -1 || echo "")
+        api_server=$(echo "$issue_body" | sed -n 's/.*--api_server:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
     fi
         
     # 返回提取的参数（正确引用包含空格的变量值）
@@ -334,31 +335,24 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     local event_data="$2"
     local build_id="${3:-}"
     
-    # 设置默认环境变量（如果不存在）
-    export DEFAULT_TAG="${DEFAULT_TAG:-vCustom}"
-    export DEFAULT_EMAIL="${DEFAULT_EMAIL:-rustdesk@example.com}"
-    export DEFAULT_CUSTOMER="${DEFAULT_CUSTOMER:-自由工作室}"
-    export DEFAULT_CUSTOMER_LINK="${DEFAULT_CUSTOMER_LINK:-https://rustdesk.com}"
-    export DEFAULT_SUPER_PASSWORD="${DEFAULT_SUPER_PASSWORD:-123456}"
-    export DEFAULT_SLOGAN="${DEFAULT_SLOGAN:-安全可靠的远程桌面解决方案}"
-    export DEFAULT_RENDEZVOUS_SERVER="${DEFAULT_RENDEZVOUS_SERVER:-1.2.3.4:21117}"
-    export DEFAULT_RS_PUB_KEY="${DEFAULT_RS_PUB_KEY:-xxxxx}"
-    export DEFAULT_API_SERVER="${DEFAULT_API_SERVER:-https://api.example.com}"
-    
-    # 创建临时GITHUB_OUTPUT文件
-    export GITHUB_OUTPUT="${GITHUB_OUTPUT:-/tmp/github_output}"
-    export GITHUB_ENV="${GITHUB_ENV:-/tmp/github_env}"
+    # 在 GitHub Actions 中，这些环境变量应该通过 secrets 或 workflow 配置提供
+    # 如果本地测试需要，请设置相应的环境变量
     
     # 执行主处理函数
     process_trigger "$event_name" "$event_data" "$build_id"
     
-    # 显示输出结果
-    echo "=== 处理结果 ==="
-    if [ -f "$GITHUB_OUTPUT" ]; then
-        cat "$GITHUB_OUTPUT"
-    fi
-    if [ -f "$GITHUB_ENV" ]; then
-        echo "=== 环境变量 ==="
-        cat "$GITHUB_ENV"
+    # 在 GitHub Actions 中，输出会自动处理
+    # 本地测试时显示结果
+    if [ -n "$GITHUB_ACTIONS" ]; then
+        echo "Running in GitHub Actions environment"
+    else
+        echo "=== 处理结果 ==="
+        if [ -f "$GITHUB_OUTPUT" ]; then
+            cat "$GITHUB_OUTPUT"
+        fi
+        if [ -f "$GITHUB_ENV" ]; then
+            echo "=== 环境变量 ==="
+            cat "$GITHUB_ENV"
+        fi
     fi
 fi 
