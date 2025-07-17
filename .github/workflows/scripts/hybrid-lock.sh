@@ -76,8 +76,64 @@ update_queue_issue_with_hybrid_lock() {
     return $?
 }
 
+# 自动清理队列中过期和已完成的项
+clean_queue_items() {
+    local queue_issue_number="1"
+    local max_hours=6
+    local now_ts=$(date +%s)
+    local changed=0
+    local queue_manager_content=$(get_queue_manager_content "$queue_issue_number")
+    local queue_data=$(extract_queue_json "$queue_manager_content")
+    if [ -z "$queue_data" ] || ! echo "$queue_data" | jq . > /dev/null 2>&1; then
+        echo "[clean_queue_items] 队列数据无效，跳过清理" >&2
+        return 0
+    fi
+    local current_queue=$(echo "$queue_data" | jq -c '.queue // []')
+    local new_queue='[]'
+    for row in $(echo "$current_queue" | jq -c '.[]'); do
+        local build_id=$(echo "$row" | jq -r '.build_id')
+        local join_time=$(echo "$row" | jq -r '.join_time // empty')
+        local keep=1
+        # 检查超时
+        if [ -n "$join_time" ]; then
+            local join_ts=$(date -d "$join_time" +%s 2>/dev/null || echo 0)
+            local diff_hours=$(( (now_ts - join_ts) / 3600 ))
+            if [ "$diff_hours" -ge "$max_hours" ]; then
+                echo "[clean_queue_items] build_id $build_id 超时 $diff_hours 小时，移除" >&2
+                keep=0
+            fi
+        fi
+        # 检查 workflow run 状态
+        if [ "$keep" = "1" ]; then
+            local run_json=$(curl -s -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+                "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$build_id")
+            local status=$(echo "$run_json" | jq -r '.status // empty')
+            local conclusion=$(echo "$run_json" | jq -r '.conclusion // empty')
+            if [ "$status" = "completed" ] || [ "$conclusion" = "success" ] || [ "$conclusion" = "failure" ] || [ "$conclusion" = "cancelled" ]; then
+                echo "[clean_queue_items] build_id $build_id 已结束($status/$conclusion)，移除" >&2
+                keep=0
+            fi
+        fi
+        if [ "$keep" = "1" ]; then
+            new_queue=$(echo "$new_queue" | jq --argjson item "$row" '. + [$item]')
+        else
+            changed=1
+        fi
+    done
+    if [ "$changed" = "1" ]; then
+        local new_version=$(( $(echo "$queue_data" | jq -r '.version // 1') + 1 ))
+        local new_queue_data=$(echo "$queue_data" | jq --argjson new_queue "$new_queue" --arg new_version "$new_version" '.queue = $new_queue | .version = ($new_version | tonumber)')
+        update_queue_issue_with_hybrid_lock "$queue_issue_number" "$new_queue_data" "空闲 🔓" "空闲 🔓"
+        echo "[clean_queue_items] 队列已清理并更新" >&2
+    else
+        echo "[clean_queue_items] 队列无需清理" >&2
+    fi
+}
+
 # 乐观锁：尝试加入队列（快速重试）
 join_queue_optimistic() {
+    # 加入队列前自动清理
+    clean_queue_items
     local build_id="$1"
     local trigger_type="$2"
     local trigger_data="$3"
@@ -113,7 +169,7 @@ join_queue_optimistic() {
             echo "Queue is full (limit: $queue_limit)"
             echo "join_success=false" >> $GITHUB_OUTPUT
             echo "queue_position=-1" >> $GITHUB_OUTPUT
-            return 1
+            return 0  # 正常退出，不是错误
         fi
         
         # 检查是否已在队列中
