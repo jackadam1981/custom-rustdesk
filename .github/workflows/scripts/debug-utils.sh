@@ -76,15 +76,41 @@ debug_var() {
     fi
 }
 
-# 调试函数：JSON数据输出
+# 调试函数：JSON数据输出（包含校验）
 debug_json() {
     local json_name="$1"
     local json_data="$2"
     
-    if [ -n "$json_data" ] && echo "$json_data" | jq . > /dev/null 2>&1; then
-        debug_log "$json_name (有效JSON): $json_data" "$DEBUG_COLOR_BLUE"
+    # 只在调试模式下执行校验
+    if [ "$DEBUG_ENABLED" = "true" ]; then
+        # 执行JSON校验
+        if [ -n "$json_data" ] && echo "$json_data" | jq . > /dev/null 2>&1; then
+            debug_log "$json_name (有效JSON): $json_data" "$DEBUG_COLOR_BLUE"
+            
+            # 输出JSON结构信息
+            local key_count=$(echo "$json_data" | jq 'keys | length' 2>/dev/null)
+            local keys=$(echo "$json_data" | jq -r 'keys[]' 2>/dev/null | tr '\n' ' ')
+            debug_log "JSON结构 - 键数量: $key_count, 键列表: $keys" "$DEBUG_COLOR_CYAN"
+        else
+            debug_log "$json_name (无效JSON或空): $json_data" "$DEBUG_COLOR_RED"
+            
+            # 尝试分析错误类型
+            if [ -n "$json_data" ]; then
+                if [[ "$json_data" =~ [^"]*:[^"]* ]]; then
+                    debug_log "可能的问题: 键值对缺少引号（伪JSON格式）" "$DEBUG_COLOR_YELLOW"
+                fi
+                if [[ "$json_data" =~ [^"]*,[^"]* ]]; then
+                    debug_log "可能的问题: 逗号分隔符问题" "$DEBUG_COLOR_YELLOW"
+                fi
+            fi
+        fi
     else
-        debug_log "$json_name (无效JSON或空): $json_data" "$DEBUG_COLOR_RED"
+        # 非调试模式下只输出基本信息
+        if [ -n "$json_data" ]; then
+            debug_log "$json_name: $json_data" "$DEBUG_COLOR_BLUE"
+        else
+            debug_log "$json_name: (空)" "$DEBUG_COLOR_RED"
+        fi
     fi
 }
 
@@ -175,6 +201,123 @@ debug_performance() {
         local duration=$((end_time - start_time))
         debug_log "性能: $operation 耗时 ${duration}秒" "$DEBUG_COLOR_CYAN"
     fi
+}
+
+# 调试函数：JSON校验（内部使用）
+debug_validate_json() {
+    local json_data="$1"
+    local step_name="$2"
+    
+    # 只在调试模式下执行校验
+    if [ "$DEBUG_ENABLED" != "true" ]; then
+        return 0
+    fi
+    
+    debug_enter "debug_validate_json" "step_name=$step_name, json_data_length=${#json_data}"
+    
+    # 检查是否为空
+    if [[ -z "$json_data" ]]; then
+        debug_error "JSON数据为空" "步骤: $step_name"
+        debug_exit "debug_validate_json" 1
+        return 1
+    fi
+    
+    # 检查基本语法
+    if ! echo "$json_data" | jq . > /dev/null 2>&1; then
+        debug_error "JSON语法错误" "步骤: $step_name"
+        debug_var "JSON内容" "$json_data"
+        
+        # 尝试分析错误类型
+        if [[ "$json_data" =~ [^"]*:[^"]* ]]; then
+            debug_warning "可能的问题" "键值对缺少引号（伪JSON格式）"
+        fi
+        if [[ "$json_data" =~ [^"]*,[^"]* ]]; then
+            debug_warning "可能的问题" "逗号分隔符问题"
+        fi
+        debug_exit "debug_validate_json" 1
+        return 1
+    fi
+    
+    # 输出JSON结构信息
+    local key_count=$(echo "$json_data" | jq 'keys | length' 2>/dev/null)
+    local keys=$(echo "$json_data" | jq -r 'keys[]' 2>/dev/null | tr '\n' ' ')
+    
+    debug_success "JSON格式正确" "步骤: $step_name"
+    debug_var "JSON键数量" "$key_count"
+    debug_var "JSON键列表" "$keys"
+    
+    debug_exit "debug_validate_json" 0
+    return 0
+}
+
+# 调试函数：安全设置JSON变量
+debug_set_json_var() {
+    local var_name="$1"
+    local json_data="$2"
+    
+    # 使用printf安全地设置变量，避免shell解析问题
+    printf -v "$var_name" '%s' "$json_data"
+    
+    # 只在调试模式下输出信息和校验
+    if [ "$DEBUG_ENABLED" = "true" ]; then
+        debug_success "安全设置JSON变量" "变量: $var_name, 长度: ${#json_data}"
+        debug_validate_json "$json_data" "设置变量 $var_name"
+    fi
+}
+
+# 调试函数：安全读取GitHub输出
+debug_read_github_output() {
+    local var_name="$1"
+    local github_output="$2"
+    
+    # 只在调试模式下输出详细信息
+    if [ "$DEBUG_ENABLED" = "true" ]; then
+        debug_enter "debug_read_github_output" "var_name=$var_name, github_output_length=${#github_output}"
+    fi
+    
+    # 检查参数
+    if [[ -z "$var_name" ]]; then
+        if [ "$DEBUG_ENABLED" = "true" ]; then
+            debug_error "变量名参数为空"
+            debug_exit "debug_read_github_output" 1
+        fi
+        return 1
+    fi
+    
+    if [[ -z "$github_output" ]]; then
+        if [ "$DEBUG_ENABLED" = "true" ]; then
+            debug_warning "GitHub输出为空，设置空字符串"
+            debug_exit "debug_read_github_output" 0
+        fi
+        printf -v "$var_name" '%s' ""
+        return 0
+    fi
+    
+    # 使用printf安全地设置变量
+    printf -v "$var_name" '%s' "$github_output"
+    
+    local json_data="${!var_name}"
+    
+    # 只在调试模式下输出详细信息和校验
+    if [ "$DEBUG_ENABLED" = "true" ]; then
+        debug_log "从GitHub Actions输出读取JSON: $github_output" "$DEBUG_COLOR_PURPLE"
+        debug_log "读取的JSON长度: ${#json_data}" "$DEBUG_COLOR_CYAN"
+        
+        # 检查是否为空
+        if [[ -z "$json_data" ]]; then
+            debug_warning "GitHub Actions输出为空"
+            debug_exit "debug_read_github_output" 0
+            return 0
+        fi
+        
+        # 校验JSON格式
+        debug_validate_json "$json_data" "读取GitHub输出"
+        
+        debug_success "成功读取GitHub输出"
+        debug_exit "debug_read_github_output" 0
+    fi
+    
+    return 0
 }
 
 # 调试函数：环境检查

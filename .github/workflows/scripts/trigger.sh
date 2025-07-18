@@ -6,7 +6,6 @@
 source .github/workflows/scripts/debug-utils.sh
 source .github/workflows/scripts/issue-templates.sh
 source .github/workflows/scripts/issue-manager.sh
-source .github/workflows/scripts/json-validator.sh
 
 # GitHub Actions 环境变量设置
 # 这些变量在 GitHub Actions 中自动提供

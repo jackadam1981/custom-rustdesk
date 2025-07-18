@@ -4,13 +4,12 @@
 # 加载依赖脚本
 
 source .github/workflows/scripts/debug-utils.sh
-source .github/workflows/scripts/json-validator.sh
 
 # 提取数据
 extract_build_data() {
     local input="$1"
     # 校验输入JSON格式
-    if ! validate_json_detailed "$input" "build.sh-输入数据校验"; then
+    if ! debug_validate_json "$input" "build.sh-输入数据校验"; then
         echo "错误: build.sh输入的JSON格式不正确" >&2
         return 1
     fi
@@ -29,13 +28,13 @@ pause_for_test() {
 process_build_data() {
     local current_data="$1"
     # 校验输入JSON格式
-    if ! validate_json_detailed "$current_data" "build.sh-处理前数据校验"; then
+    if ! debug_validate_json "$current_data" "build.sh-处理前数据校验"; then
         echo "错误: build.sh处理前JSON格式不正确" >&2
         return 1
     fi
     local processed=$(echo "$current_data" | jq -c --arg build_time "$(date -Iseconds)" '. + {built: true, build_time: $build_time}')
     # 校验处理后JSON格式
-    if ! validate_json_detailed "$processed" "build.sh-处理后数据校验"; then
+    if ! debug_validate_json "$processed" "build.sh-处理后数据校验"; then
         echo "错误: build.sh处理后JSON格式不正确" >&2
         return 1
     fi
@@ -47,7 +46,7 @@ process_build_data() {
 output_build_data() {
     local output_data="$1"
     # 校验输出JSON格式
-    if ! validate_json_detailed "$output_data" "build.sh-输出数据校验"; then
+    if ! debug_validate_json "$output_data" "build.sh-输出数据校验"; then
         echo "错误: build.sh输出的JSON格式不正确" >&2
         return 1
     fi
