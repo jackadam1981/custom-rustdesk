@@ -17,23 +17,23 @@ LOCK_TIMEOUT_HOURS=2      # 锁超时时间
 extract_queue_json() {
     local issue_content="$1"
     
-    debug_enter "extract_queue_json" "issue_content_length=${#issue_content}"
+    debug "log" "进入函数: extract_queue_json, 参数: issue_content_length=${#issue_content}"
     
     # 兼容性更好的提取方法，提取 ```json ... ``` 之间的内容
     local json_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | sed '1d;$d' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
     
-    debug_var "提取的原始JSON数据" "$json_data"
+    debug "var" "提取的原始JSON数据" "$json_data"
     
     # 验证JSON格式
     if [ -n "$json_data" ] && echo "$json_data" | jq . > /dev/null 2>&1; then
-        debug_success "JSON验证成功，返回压缩格式"
+        debug "success" "JSON验证成功，返回压缩格式"
         local result=$(echo "$json_data" | jq -c .)
-        debug_exit "extract_queue_json" 0 "$result"
+        debug "log" "函数 extract_queue_json 成功退出"
         echo "$result"
     else
-        debug_warning "JSON验证失败或为空，返回默认格式"
+        debug "warning" "JSON验证失败或为空，返回默认格式"
         local result='{"queue":[],"run_id":null,"version":1}'
-        debug_exit "extract_queue_json" 0 "$result"
+        debug "log" "函数 extract_queue_json 成功退出"
         echo "$result"
     fi
 }
@@ -52,14 +52,14 @@ update_queue_issue() {
     local issue_number="$1"
     local body="$2"
     
-    debug_enter "update_queue_issue" "issue_number=$issue_number, body_length=${#body}"
-    debug_var "Repository" "$GITHUB_REPOSITORY"
-    debug_var "Token状态" "$([ -n "$GITHUB_TOKEN" ] && echo "已设置" || echo "未设置")"
-    debug_var "Body预览" "${body:0:100}"
+    debug "log" "进入函数: update_queue_issue, 参数: issue_number=$issue_number, body_length=${#body}"
+    debug "var" "Repository" "$GITHUB_REPOSITORY"
+    debug "var" "Token状态" "$([ -n "$GITHUB_TOKEN" ] && echo "已设置" || echo "未设置")"
+    debug "var" "Body预览" "${body:0:100}"
     
     # 构建JSON payload
     local json_payload=$(jq -n --arg body "$body" '{"body": $body}')
-    debug_json "JSON payload" "$json_payload"
+    debug "json" "JSON payload" "$json_payload"
     
     # 实际更新
     local response=$(curl -s -w "\n%{http_code}" -X PATCH \
@@ -71,16 +71,16 @@ update_queue_issue() {
     local http_code=$(echo "$response" | tail -n1)
     local response_body=$(echo "$response" | head -n -1)
     
-    debug_api "PATCH" "issues/$issue_number" "$response_body" "$http_code"
+    debug "log" "API调用: PATCH issues/$issue_number, HTTP响应码: $http_code"
     
     echo "$response_body"  # 只输出 JSON
     if [ "$http_code" -eq 200 ] || [ "$http_code" -eq 201 ]; then
-        debug_success "更新成功"
-        debug_exit "update_queue_issue" 0
+        debug "success" "更新成功"
+        debug "log" "函数 update_queue_issue 成功退出"
         return 0
     else
-        debug_error "更新失败" "HTTP Code: $http_code"
-        debug_exit "update_queue_issue" 1
+        debug "error" "更新失败" "HTTP Code: $http_code"
+        debug "log" "函数 update_queue_issue 失败退出"
         return 1
     fi
 }
@@ -217,8 +217,8 @@ join_queue_optimistic() {
         if [ -z "$queue_data" ] || ! echo "$queue_data" | jq . > /dev/null 2>&1; then
             echo "[DEBUG] 队列数据无效，尝试重置队列" >&2
             if reset_queue_to_default "1" "队列数据无效，重置为默认模板"; then
-                queue_manager_content=$(get_queue_manager_content "1")
-                queue_data=$(extract_queue_json "$queue_manager_content")
+            queue_manager_content=$(get_queue_manager_content "1")
+            queue_data=$(extract_queue_json "$queue_manager_content")
                 echo "[DEBUG] 重置后的队列数据: $queue_data" >&2
             else
                 echo "[DEBUG] 重置队列失败，使用默认队列数据" >&2

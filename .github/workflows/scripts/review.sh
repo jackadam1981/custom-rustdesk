@@ -114,7 +114,7 @@ extract_and_validate_data() {
     echo "Review.sh接收到输入数据" >&2
     
     # 直接使用输入数据
-    local parsed_input="$input"
+        local parsed_input="$input"
     
     # 提取服务器地址
     local rendezvous_server=$(echo "$parsed_input" | jq -r '.rendezvous_server // empty')

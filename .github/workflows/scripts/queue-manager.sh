@@ -36,24 +36,24 @@ retry_operation() {
 extract_queue_json() {
   local issue_content="$1"
   
-  debug_enter "extract_queue_json" "issue_content_length=${#issue_content}"
+  debug "log" "进入函数: extract_queue_json, 参数: issue_content_length=${#issue_content}"
   
   # 提取 ```json ... ``` 代码块
   local json_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | sed '1d;$d')
   json_data=$(echo "$json_data" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
   
-  debug_var "提取的原始JSON数据" "$json_data"
+  debug "var" "提取的原始JSON数据" "$json_data"
   
   # 验证JSON格式并返回
   if [ -n "$json_data" ] && echo "$json_data" | jq . > /dev/null 2>&1; then
-    debug_success "JSON验证成功，返回压缩格式"
+    debug "success" "JSON验证成功，返回压缩格式"
     local result=$(echo "$json_data" | jq -c .)
-    debug_exit "extract_queue_json" 0 "$result"
+    debug "log" "函数 extract_queue_json 成功退出"
     echo "$result"
   else
-    debug_warning "JSON验证失败或为空，返回默认格式"
+    debug "warning" "JSON验证失败或为空，返回默认格式"
     local result='{"queue":[],"run_id":null,"version":1}'
-    debug_exit "extract_queue_json" 0 "$result"
+    debug "log" "函数 extract_queue_json 成功退出"
     echo "$result"
   fi
 }

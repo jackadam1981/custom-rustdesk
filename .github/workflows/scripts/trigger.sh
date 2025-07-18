@@ -14,7 +14,7 @@ source .github/workflows/scripts/issue-manager.sh
 extract_workflow_dispatch_params() {
     local event_data="$1"
     
-    debug_enter "extract_workflow_dispatch_params" "event_data_length=${#event_data}"
+    debug "log" "进入函数: extract_workflow_dispatch_params, 参数: event_data_length=${#event_data}"
     
     # 从完整事件数据中提取 inputs 部分
     local tag=$(echo "$event_data" | jq -r '.inputs.tag // empty')
@@ -27,16 +27,16 @@ extract_workflow_dispatch_params() {
     local rs_pub_key=$(echo "$event_data" | jq -r '.inputs.rs_pub_key // empty')
     local api_server=$(echo "$event_data" | jq -r '.inputs.api_server // empty')
     
-    debug_success "手动触发检测到"
-    debug_var "TAG" "$tag"
-    debug_var "EMAIL" "$email"
-    debug_var "CUSTOMER" "$customer"
-    debug_var "CUSTOMER_LINK" "$customer_link"
-    debug_var "SUPER_PASSWORD" "$super_password"
-    debug_var "SLOGAN" "$slogan"
-    debug_var "RENDEZVOUS_SERVER" "$rendezvous_server"
-    debug_var "RS_PUB_KEY" "$rs_pub_key"
-    debug_var "API_SERVER" "$api_server"
+    debug "success" "手动触发检测到"
+    debug "var" "TAG" "$tag"
+    debug "var" "EMAIL" "$email"
+    debug "var" "CUSTOMER" "$customer"
+    debug "var" "CUSTOMER_LINK" "$customer_link"
+    debug "var" "SUPER_PASSWORD" "$super_password"
+    debug "var" "SLOGAN" "$slogan"
+    debug "var" "RENDEZVOUS_SERVER" "$rendezvous_server"
+    debug "var" "RS_PUB_KEY" "$rs_pub_key"
+    debug "var" "API_SERVER" "$api_server"
     
     # 返回提取的参数（正确引用包含空格的变量值）
     echo "TAG=\"$tag\""
@@ -49,21 +49,21 @@ extract_workflow_dispatch_params() {
     echo "RS_PUB_KEY=\"$rs_pub_key\""
     echo "API_SERVER=\"$api_server\""
     
-    debug_exit "extract_workflow_dispatch_params" 0
+    debug "log" "函数 extract_workflow_dispatch_params 成功退出"
 }
 
 # 从 issue 内容中提取参数
 extract_issue_params() {
     local event_data="$1"
     
-    debug_enter "extract_issue_params" "event_data_length=${#event_data}"
+    debug "log" "进入函数: extract_issue_params, 参数: event_data_length=${#event_data}"
     
     # 从事件数据中提取 issue 信息
     local build_id=$(echo "$event_data" | jq -r '.issue.number // empty')
     local issue_body=$(echo "$event_data" | jq -r '.issue.body // empty')
     
-    debug_var "BUILD_ID" "$build_id"
-    debug_var "ISSUE_BODY" "$issue_body"
+    debug "var" "BUILD_ID" "$build_id"
+    debug "var" "ISSUE_BODY" "$issue_body"
     
     # 保存原始issue内容供后续使用
     echo "ORIGINAL_ISSUE_BODY=$issue_body" >> $GITHUB_ENV
@@ -80,53 +80,53 @@ extract_issue_params() {
     local rs_pub_key=$(echo "$issue_body" | sed -n 's/.*[[:space:]]*\(--\)\?rs_pub_key:[[:space:]]*\([^[:space:]\r\n]*\).*/\2/p' | head -1)
     local api_server=$(echo "$issue_body" | sed -n 's/.*[[:space:]]*\(--\)\?api_server:[[:space:]]*\([^[:space:]\r\n]*\).*/\2/p' | head -1)
     
-    debug_success "Issue触发检测到"
-    debug_var "提取的TAG" "$tag"
-    debug_var "提取的EMAIL" "$email"
-    debug_var "提取的CUSTOMER" "$customer"
-    debug_var "提取的CUSTOMER_LINK" "$customer_link"
-    debug_var "提取的SUPER_PASSWORD" "$super_password"
-    debug_var "提取的SLOGAN" "$slogan"
-    debug_var "提取的RENDEZVOUS_SERVER" "$rendezvous_server"
-    debug_var "提取的RS_PUB_KEY" "$rs_pub_key"
-    debug_var "提取的API_SERVER" "$api_server"
+    debug "success" "Issue触发检测到"
+    debug "var" "提取的TAG" "$tag"
+    debug "var" "提取的EMAIL" "$email"
+    debug "var" "提取的CUSTOMER" "$customer"
+    debug "var" "提取的CUSTOMER_LINK" "$customer_link"
+    debug "var" "提取的SUPER_PASSWORD" "$super_password"
+    debug "var" "提取的SLOGAN" "$slogan"
+    debug "var" "提取的RENDEZVOUS_SERVER" "$rendezvous_server"
+    debug "var" "提取的RS_PUB_KEY" "$rs_pub_key"
+    debug "var" "提取的API_SERVER" "$api_server"
     
     # 如果新格式没有找到，尝试旧格式
     if [ -z "$tag" ]; then
         tag=$(echo "$issue_body" | sed -n 's/.*--tag:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
-        debug_warning "使用旧格式提取TAG" "$tag"
+        debug "warning" "使用旧格式提取TAG" "$tag"
     fi
     if [ -z "$email" ]; then
         email=$(echo "$issue_body" | sed -n 's/.*--email:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
-        debug_warning "使用旧格式提取EMAIL" "$email"
+        debug "warning" "使用旧格式提取EMAIL" "$email"
     fi
     if [ -z "$customer" ]; then
         customer=$(echo "$issue_body" | sed -n 's/.*--customer:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
-        debug_warning "使用旧格式提取CUSTOMER" "$customer"
+        debug "warning" "使用旧格式提取CUSTOMER" "$customer"
     fi
     if [ -z "$customer_link" ]; then
         customer_link=$(echo "$issue_body" | sed -n 's/.*--customer_link:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
-        debug_warning "使用旧格式提取CUSTOMER_LINK" "$customer_link"
+        debug "warning" "使用旧格式提取CUSTOMER_LINK" "$customer_link"
     fi
     if [ -z "$super_password" ]; then
         super_password=$(echo "$issue_body" | sed -n 's/.*--super_password:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
-        debug_warning "使用旧格式提取SUPER_PASSWORD" "$super_password"
+        debug "warning" "使用旧格式提取SUPER_PASSWORD" "$super_password"
     fi
     if [ -z "$slogan" ]; then
         slogan=$(echo "$issue_body" | sed -n 's/.*--slogan:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
-        debug_warning "使用旧格式提取SLOGAN" "$slogan"
+        debug "warning" "使用旧格式提取SLOGAN" "$slogan"
     fi
     if [ -z "$rendezvous_server" ]; then
         rendezvous_server=$(echo "$issue_body" | sed -n 's/.*--rendezvous_server:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
-        debug_warning "使用旧格式提取RENDEZVOUS_SERVER" "$rendezvous_server"
+        debug "warning" "使用旧格式提取RENDEZVOUS_SERVER" "$rendezvous_server"
     fi
     if [ -z "$rs_pub_key" ]; then
         rs_pub_key=$(echo "$issue_body" | sed -n 's/.*--rs_pub_key:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
-        debug_warning "使用旧格式提取RS_PUB_KEY" "$rs_pub_key"
+        debug "warning" "使用旧格式提取RS_PUB_KEY" "$rs_pub_key"
     fi
     if [ -z "$api_server" ]; then
         api_server=$(echo "$issue_body" | sed -n 's/.*--api_server:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
-        debug_warning "使用旧格式提取API_SERVER" "$api_server"
+        debug "warning" "使用旧格式提取API_SERVER" "$api_server"
     fi
         
     # 返回提取的参数（正确引用包含空格的变量值）
@@ -141,7 +141,7 @@ extract_issue_params() {
     echo "RS_PUB_KEY=\"$rs_pub_key\""
     echo "API_SERVER=\"$api_server\""
     
-    debug_exit "extract_issue_params" 0
+    debug "log" "函数 extract_issue_params 成功退出"
 }
 
 # 应用默认值（使用 secrets）
@@ -329,7 +329,7 @@ process_trigger() {
     local data=$(generate_build_data "$FINAL_TAG" "$ORIGINAL_TAG" "$EMAIL" "$CUSTOMER" "$CUSTOMER_LINK" "$SUPER_PASSWORD" "$SLOGAN" "$RENDEZVOUS_SERVER" "$RS_PUB_KEY" "$API_SERVER")
     
     # 校验生成的JSON数据
-    if ! validate_json_detailed "$data" "trigger.sh-生成构建数据"; then
+    if ! debug "validate" "trigger.sh-生成构建数据" "$data"; then
         echo "错误: trigger.sh生成的JSON格式不正确" >&2
         exit 1
     fi
