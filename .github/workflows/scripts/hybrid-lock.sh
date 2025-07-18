@@ -142,6 +142,13 @@ clean_queue_items() {
     local current_queue=$(echo "$queue_data" | jq -c '.queue // []')
     local new_queue='[]'
     for row in $(echo "$current_queue" | jq -c '.[]'); do
+        # 验证JSON格式
+        if ! echo "$row" | jq . > /dev/null 2>&1; then
+            echo "[clean_queue_items] 跳过无效的队列项: $row" >&2
+            changed=1
+            continue
+        fi
+        
         local build_id=$(echo "$row" | jq -r '.build_id')
         local join_time=$(echo "$row" | jq -r '.join_time // empty')
         local keep=1
@@ -166,11 +173,8 @@ clean_queue_items() {
             fi
         fi
         if [ "$keep" = "1" ]; then
-            # 使用临时文件避免命令行参数过长
-            local temp_file=$(mktemp)
-            echo "$row" > "$temp_file"
-            new_queue=$(echo "$new_queue" | jq --slurpfile item "$temp_file" '. + $item')
-            rm -f "$temp_file"
+            # 直接使用jq合并，避免临时文件问题
+            new_queue=$(echo "$new_queue" | jq --argjson item "$row" '. + [$item]')
         else
             changed=1
         fi
