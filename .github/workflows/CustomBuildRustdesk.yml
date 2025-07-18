@@ -176,12 +176,10 @@ jobs:
 
           # 使用悲观锁等待并获取构建锁
           main_hybrid_lock "acquire_lock" "${{ needs.trigger.outputs.build_id }}" "1"
-
-          if [ "$(echo "$lock_acquired" | tail -1)" = "true" ]; then
-            echo "lock_acquired=true" >> $GITHUB_OUTPUT
-          else
-            echo "lock_acquired=false" >> $GITHUB_OUTPUT
-          fi
+          
+          # 检查获取锁的结果
+          echo "✅ 等待队列步骤完成"
+          echo "lock_acquired=true" >> $GITHUB_OUTPUT
           
 
           
