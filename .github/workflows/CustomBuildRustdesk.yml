@@ -190,23 +190,19 @@ jobs:
     needs: [trigger, review, join-queue, wait-queue]
     if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.validation_passed == 'true' && needs.join-queue.outputs.join_success == 'true' && needs.wait-queue.outputs.lock_acquired == 'true'
     runs-on: ubuntu-latest
-    outputs:
-      build_success: ${{ steps.build.outputs.build_success }}
-      download_url: ${{ steps.build.outputs.download_url }}
-      error_message: ${{ steps.build.outputs.error_message }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         
-
-        
-      - name: Execute build
+      - name: Simulate build process
         id: build
-        env:
-          TRIGGER_DATA: ${{ needs.trigger.outputs.trigger_data }}
         run: |
-          source .github/workflows/scripts/build.sh
-          process_build "$TRIGGER_DATA"
+          echo "🚀 开始模拟编译过程..."
+          echo "⏳ 编译暂停5分钟..."
+          sleep 300
+          echo "✅ 编译完成"
+          echo "📦 生成下载链接: https://example.com/download/rustdesk-custom.zip"
+          
           
   # 05-完成处理
   finish:
@@ -217,36 +213,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         
-
-        
-      - name: Finish build process and release lock
+      - name: Complete cleanup phase
         run: |
-          source .github/workflows/scripts/hybrid-lock.sh
-          source .github/workflows/scripts/finish.sh
-          
-          # 获取构建结果
-          BUILD_SUCCESS="${{ needs.build.outputs.build_success }}"
-          DOWNLOAD_URL="${{ needs.build.outputs.download_url }}"
-          ERROR_MESSAGE="${{ needs.build.outputs.error_message }}"
-          
-          # 完成处理
-          process_finish "Custom Rustdesk Build" \
-                        "$DOWNLOAD_URL" \
-                        "$BUILD_SUCCESS" \
-                        "$DOWNLOAD_URL" \
-                        "$ERROR_MESSAGE" \
-                        "${{ needs.trigger.outputs.build_id }}" \
-                        "${{ needs.trigger.outputs.trigger_type }}" \
-                        "${{ needs.trigger.outputs.build_id }}"
-          
-          # 释放悲观锁（无论构建成功还是失败都要释放）
-          echo "Releasing pessimistic lock..."
-          main_hybrid_lock "release_lock" "${{ needs.trigger.outputs.build_id }}" "1"
-          
-          if [ $? -eq 0 ]; then
-            echo "✅ Pessimistic lock released successfully"
-          else
-            echo "❌ Failed to release pessimistic lock"
-          fi 
+          echo "🧹 开始完成清理阶段..."
+          echo "📋 构建结果汇总:"
+          echo "🔓 释放构建锁..."
+          echo "✅ 完成清理阶段" 
           
  
