@@ -3,6 +3,9 @@
 # JSON校验工具函数
 # 用于在每一步校验JSON格式，帮助定位JSON破坏的位置
 
+# 加载调试工具
+source .github/workflows/scripts/debug-utils.sh
+
 # JSON校验函数
 # 参数1: JSON字符串
 # 参数2: 步骤名称（用于日志标识）
@@ -34,26 +37,28 @@ validate_json_detailed() {
     local json_data="$1"
     local step_name="$2"
     
-    echo "详细校验JSON格式 - 步骤: $step_name"
+    debug_enter "validate_json_detailed" "step_name=$step_name, json_data_length=${#json_data}"
     
     # 检查是否为空
     if [[ -z "$json_data" ]]; then
-        echo "步骤 $step_name: JSON数据为空"
+        debug_error "JSON数据为空" "步骤: $step_name"
+        debug_exit "validate_json_detailed" 1
         return 1
     fi
     
     # 检查基本语法
     if ! echo "$json_data" | jq . >/dev/null 2>&1; then
-        echo "步骤 $step_name: JSON语法错误"
-        echo "JSON内容: $json_data"
+        debug_error "JSON语法错误" "步骤: $step_name"
+        debug_var "JSON内容" "$json_data"
         
         # 尝试分析错误类型
         if [[ "$json_data" =~ [^"]*:[^"]* ]]; then
-            echo "可能的问题: 键值对缺少引号（伪JSON格式）"
+            debug_warning "可能的问题" "键值对缺少引号（伪JSON格式）"
         fi
         if [[ "$json_data" =~ [^"]*,[^"]* ]]; then
-            echo "可能的问题: 逗号分隔符问题"
+            debug_warning "可能的问题" "逗号分隔符问题"
         fi
+        debug_exit "validate_json_detailed" 1
         return 1
     fi
     
@@ -61,9 +66,12 @@ validate_json_detailed() {
     local key_count=$(echo "$json_data" | jq 'keys | length' 2>/dev/null)
     local keys=$(echo "$json_data" | jq -r 'keys[]' 2>/dev/null | tr '\n' ' ')
     
-    echo "步骤 $step_name: JSON格式正确"
-    echo "JSON包含 $key_count 个键: $keys"
+    debug_success "JSON格式正确" "步骤: $step_name"
+    debug_var "JSON键数量" "$key_count"
+    debug_var "JSON键列表" "$keys"
+    debug_json "JSON数据" "$json_data"
     
+    debug_exit "validate_json_detailed" 0
     return 0
 }
 

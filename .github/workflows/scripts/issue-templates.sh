@@ -282,13 +282,39 @@ generate_hybrid_lock_status_body() {
     local current_build="${6:-无}"
     local lock_holder="${7:-无}"
     
+    echo "[DEBUG] generate_hybrid_lock_status_body: 开始生成混合锁状态模板" >&2
+    echo "[DEBUG] current_time: $current_time" >&2
+    echo "[DEBUG] version: $version" >&2
+    echo "[DEBUG] optimistic_lock_status: $optimistic_lock_status" >&2
+    echo "[DEBUG] pessimistic_lock_status: $pessimistic_lock_status" >&2
+    echo "[DEBUG] current_build: $current_build" >&2
+    echo "[DEBUG] lock_holder: $lock_holder" >&2
+    echo "[DEBUG] queue_data: $queue_data" >&2
+    
+    # 计算队列统计信息
+    local queue_length=$(echo "$queue_data" | jq '.queue | length // 0')
+    local issue_count=$(echo "$queue_data" | jq '.queue | map(select(.trigger_type == "issue")) | length // 0')
+    local workflow_count=$(echo "$queue_data" | jq '.queue | map(select(.trigger_type == "workflow_dispatch")) | length // 0')
+    
+    echo "[DEBUG] 队列统计 - 总数: $queue_length, Issue: $issue_count, Workflow: $workflow_count" >&2
+    
+    # 确定锁状态显示
+    local lock_status_display
+    if [ "$pessimistic_lock_status" = "占用 🔒" ]; then
+        lock_status_display="占用 🔒"
+    else
+        lock_status_display="空闲 🔓"
+    fi
+    
+    echo "[DEBUG] 锁状态显示: $lock_status_display" >&2
+    
     cat <<EOF
 ## 构建队列管理
 
 **最后更新时间：** $current_time
 
 ### 当前状态
-- **构建锁状态：** $(if [ "$pessimistic_lock_status" = "占用 🔒" ]; then echo "占用 🔒"; else echo "空闲 🔓"; fi)
+- **构建锁状态：** $lock_status_display
 - **当前构建：** $current_build
 - **锁持有者：** $lock_holder
 - **版本：** $version
@@ -298,9 +324,9 @@ generate_hybrid_lock_status_body() {
 - **悲观锁（构建）：** $pessimistic_lock_status
 
 ### 构建队列
-- **当前数量：** $(echo "$queue_data" | jq '.queue | length // 0')/5
-- **Issue触发：** $(echo "$queue_data" | jq '.queue | map(select(.trigger_type == "issue")) | length // 0')/3
-- **手动触发：** $(echo "$queue_data" | jq '.queue | map(select(.trigger_type == "workflow_dispatch")) | length // 0')/5
+- **当前数量：** $queue_length/5
+- **Issue触发：** $issue_count/3
+- **手动触发：** $workflow_count/5
 
 ---
 
@@ -309,6 +335,8 @@ generate_hybrid_lock_status_body() {
 $queue_data
 \`\`\`
 EOF
+
+    echo "[DEBUG] generate_hybrid_lock_status_body: 模板生成完成" >&2
 }
 
 # 生成乐观锁状态通知

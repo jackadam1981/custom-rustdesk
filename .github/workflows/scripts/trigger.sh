@@ -3,6 +3,7 @@
 # 这个文件处理事件触发和参数提取逻辑
 
 # 加载依赖脚本
+source .github/workflows/scripts/debug-utils.sh
 source .github/workflows/scripts/issue-templates.sh
 source .github/workflows/scripts/issue-manager.sh
 source .github/workflows/scripts/json-validator.sh
@@ -14,7 +15,8 @@ source .github/workflows/scripts/json-validator.sh
 extract_workflow_dispatch_params() {
     local event_data="$1"
     
-    echo "Manual trigger detected" >&2
+    debug_enter "extract_workflow_dispatch_params" "event_data_length=${#event_data}"
+    
     # 从完整事件数据中提取 inputs 部分
     local tag=$(echo "$event_data" | jq -r '.inputs.tag // empty')
     local email=$(echo "$event_data" | jq -r '.inputs.email // empty')
@@ -26,17 +28,16 @@ extract_workflow_dispatch_params() {
     local rs_pub_key=$(echo "$event_data" | jq -r '.inputs.rs_pub_key // empty')
     local api_server=$(echo "$event_data" | jq -r '.inputs.api_server // empty')
     
-    # 调试输出提取的参数
-    echo "Extracted workflow_dispatch parameters:" >&2
-    echo "TAG: '$tag'" >&2
-    echo "EMAIL: '$email'" >&2
-    echo "CUSTOMER: '$customer'" >&2
-    echo "CUSTOMER_LINK: '$customer_link'" >&2
-    echo "SUPER_PASSWORD: '$super_password'" >&2
-    echo "SLOGAN: '$slogan'" >&2
-    echo "RENDEZVOUS_SERVER: '$rendezvous_server'" >&2
-    echo "RS_PUB_KEY: '$rs_pub_key'" >&2
-    echo "API_SERVER: '$api_server'" >&2
+    debug_success "手动触发检测到"
+    debug_var "TAG" "$tag"
+    debug_var "EMAIL" "$email"
+    debug_var "CUSTOMER" "$customer"
+    debug_var "CUSTOMER_LINK" "$customer_link"
+    debug_var "SUPER_PASSWORD" "$super_password"
+    debug_var "SLOGAN" "$slogan"
+    debug_var "RENDEZVOUS_SERVER" "$rendezvous_server"
+    debug_var "RS_PUB_KEY" "$rs_pub_key"
+    debug_var "API_SERVER" "$api_server"
     
     # 返回提取的参数（正确引用包含空格的变量值）
     echo "TAG=\"$tag\""
@@ -48,17 +49,22 @@ extract_workflow_dispatch_params() {
     echo "RENDEZVOUS_SERVER=\"$rendezvous_server\""
     echo "RS_PUB_KEY=\"$rs_pub_key\""
     echo "API_SERVER=\"$api_server\""
+    
+    debug_exit "extract_workflow_dispatch_params" 0
 }
 
 # 从 issue 内容中提取参数
 extract_issue_params() {
     local event_data="$1"
     
-    echo "Issue trigger detected" >&2
+    debug_enter "extract_issue_params" "event_data_length=${#event_data}"
     
     # 从事件数据中提取 issue 信息
     local build_id=$(echo "$event_data" | jq -r '.issue.number // empty')
     local issue_body=$(echo "$event_data" | jq -r '.issue.body // empty')
+    
+    debug_var "BUILD_ID" "$build_id"
+    debug_var "ISSUE_BODY" "$issue_body"
     
     # 保存原始issue内容供后续使用
     echo "ORIGINAL_ISSUE_BODY=$issue_body" >> $GITHUB_ENV
@@ -75,33 +81,53 @@ extract_issue_params() {
     local rs_pub_key=$(echo "$issue_body" | sed -n 's/.*[[:space:]]*\(--\)\?rs_pub_key:[[:space:]]*\([^[:space:]\r\n]*\).*/\2/p' | head -1)
     local api_server=$(echo "$issue_body" | sed -n 's/.*[[:space:]]*\(--\)\?api_server:[[:space:]]*\([^[:space:]\r\n]*\).*/\2/p' | head -1)
     
+    debug_success "Issue触发检测到"
+    debug_var "提取的TAG" "$tag"
+    debug_var "提取的EMAIL" "$email"
+    debug_var "提取的CUSTOMER" "$customer"
+    debug_var "提取的CUSTOMER_LINK" "$customer_link"
+    debug_var "提取的SUPER_PASSWORD" "$super_password"
+    debug_var "提取的SLOGAN" "$slogan"
+    debug_var "提取的RENDEZVOUS_SERVER" "$rendezvous_server"
+    debug_var "提取的RS_PUB_KEY" "$rs_pub_key"
+    debug_var "提取的API_SERVER" "$api_server"
+    
     # 如果新格式没有找到，尝试旧格式
     if [ -z "$tag" ]; then
         tag=$(echo "$issue_body" | sed -n 's/.*--tag:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
+        debug_warning "使用旧格式提取TAG" "$tag"
     fi
     if [ -z "$email" ]; then
         email=$(echo "$issue_body" | sed -n 's/.*--email:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
+        debug_warning "使用旧格式提取EMAIL" "$email"
     fi
     if [ -z "$customer" ]; then
         customer=$(echo "$issue_body" | sed -n 's/.*--customer:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
+        debug_warning "使用旧格式提取CUSTOMER" "$customer"
     fi
     if [ -z "$customer_link" ]; then
         customer_link=$(echo "$issue_body" | sed -n 's/.*--customer_link:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
+        debug_warning "使用旧格式提取CUSTOMER_LINK" "$customer_link"
     fi
     if [ -z "$super_password" ]; then
         super_password=$(echo "$issue_body" | sed -n 's/.*--super_password:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
+        debug_warning "使用旧格式提取SUPER_PASSWORD" "$super_password"
     fi
     if [ -z "$slogan" ]; then
         slogan=$(echo "$issue_body" | sed -n 's/.*--slogan:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
+        debug_warning "使用旧格式提取SLOGAN" "$slogan"
     fi
     if [ -z "$rendezvous_server" ]; then
         rendezvous_server=$(echo "$issue_body" | sed -n 's/.*--rendezvous_server:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
+        debug_warning "使用旧格式提取RENDEZVOUS_SERVER" "$rendezvous_server"
     fi
     if [ -z "$rs_pub_key" ]; then
         rs_pub_key=$(echo "$issue_body" | sed -n 's/.*--rs_pub_key:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
+        debug_warning "使用旧格式提取RS_PUB_KEY" "$rs_pub_key"
     fi
     if [ -z "$api_server" ]; then
         api_server=$(echo "$issue_body" | sed -n 's/.*--api_server:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
+        debug_warning "使用旧格式提取API_SERVER" "$api_server"
     fi
         
     # 返回提取的参数（正确引用包含空格的变量值）
@@ -115,6 +141,8 @@ extract_issue_params() {
     echo "RENDEZVOUS_SERVER=\"$rendezvous_server\""
     echo "RS_PUB_KEY=\"$rs_pub_key\""
     echo "API_SERVER=\"$api_server\""
+    
+    debug_exit "extract_issue_params" 0
 }
 
 # 应用默认值（使用 secrets）
@@ -346,13 +374,13 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     if [ -n "$GITHUB_ACTIONS" ]; then
         echo "Running in GitHub Actions environment"
     else
-        echo "=== 处理结果 ==="
-        if [ -f "$GITHUB_OUTPUT" ]; then
-            cat "$GITHUB_OUTPUT"
-        fi
-        if [ -f "$GITHUB_ENV" ]; then
-            echo "=== 环境变量 ==="
-            cat "$GITHUB_ENV"
+    echo "=== 处理结果 ==="
+    if [ -f "$GITHUB_OUTPUT" ]; then
+        cat "$GITHUB_OUTPUT"
+    fi
+    if [ -f "$GITHUB_ENV" ]; then
+        echo "=== 环境变量 ==="
+        cat "$GITHUB_ENV"
         fi
     fi
 fi 

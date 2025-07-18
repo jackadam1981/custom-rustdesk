@@ -44,6 +44,11 @@ on:
         description: 'API服务地址'
         required: true
         default: 'http://192.168.1.100:21114'
+      enable_debug:
+        description: '启用调试模式（仅手动触发时有效）'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   issues: write
@@ -53,6 +58,8 @@ permissions:
 env:
   GITHUB_TOKEN: ${{ secrets.ISSUE_TOKEN }}
   ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+  # 调试配置 - 默认不开启调试，只在手动触发时可通过input控制
+  DEBUG_ENABLED: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.enable_debug == 'true' || 'false' }}
 
 jobs:
   # 00-触发处理

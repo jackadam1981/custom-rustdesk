@@ -1,7 +1,8 @@
 #!/bin/bash
 # 队列管理脚本
-# 这个文件包含所有队列操作功�?
+# 这个文件包含所有队列操作功能
 # 加载依赖脚本
+source .github/workflows/scripts/debug-utils.sh
 source .github/workflows/scripts/encryption-utils.sh
 source .github/workflows/scripts/issue-templates.sh
 
@@ -35,15 +36,25 @@ retry_operation() {
 extract_queue_json() {
   local issue_content="$1"
   
+  debug_enter "extract_queue_json" "issue_content_length=${#issue_content}"
+  
   # 提取 ```json ... ``` 代码块
   local json_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | sed '1d;$d')
   json_data=$(echo "$json_data" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
   
+  debug_var "提取的原始JSON数据" "$json_data"
+  
   # 验证JSON格式并返回
   if [ -n "$json_data" ] && echo "$json_data" | jq . > /dev/null 2>&1; then
-    echo "$json_data" | jq -c .
+    debug_success "JSON验证成功，返回压缩格式"
+    local result=$(echo "$json_data" | jq -c .)
+    debug_exit "extract_queue_json" 0 "$result"
+    echo "$result"
   else
-    echo '{"queue":[],"run_id":null,"version":1}'
+    debug_warning "JSON验证失败或为空，返回默认格式"
+    local result='{"queue":[],"run_id":null,"version":1}'
+    debug_exit "extract_queue_json" 0 "$result"
+    echo "$result"
   fi
 }
 
@@ -88,6 +99,13 @@ get_queue_manager_content() {
 update_queue_issue() {
   local queue_issue_number="${1:-1}"
   local body="$2"
+  
+  echo "[DEBUG] update_queue_issue: 开始更新issue $queue_issue_number" >&2
+  echo "[DEBUG] Repository: $GITHUB_REPOSITORY" >&2
+  echo "[DEBUG] Token available: $([ -n "$GITHUB_TOKEN" ] && echo "yes" || echo "no")" >&2
+  echo "[DEBUG] Body length: ${#body}" >&2
+  echo "[DEBUG] Body preview (前100字符): ${body:0:100}..." >&2
+  
   local response=$(curl -s -X PATCH \
     -H "Authorization: token $GITHUB_TOKEN" \
     -H "Accept: application/vnd.github.v3+json" \
@@ -95,12 +113,15 @@ update_queue_issue() {
     -d "{\"body\":\"$body\"}" \
     "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/$queue_issue_number")
   
+  echo "[DEBUG] 响应内容:" >&2
+  echo "$response" >&2
+  
   if echo "$response" | jq -e '.message' | grep -q "Not Found"; then
-    echo "Failed to update issue #$queue_issue_number"
+    echo "[DEBUG] 更新失败: issue #$queue_issue_number not found" >&2
     return 1
   fi
   
-  echo "Issue #$queue_issue_number updated successfully"
+  echo "[DEBUG] Issue #$queue_issue_number 更新成功" >&2
   return 0
 }
 
@@ -376,17 +397,25 @@ join_queue() {
     local trigger_data="$3"
     local queue_limit="$4"
     
-    echo "Starting hybrid lock queue join process..."
+    echo "[DEBUG] join_queue: 开始混合锁队列加入过程" >&2
+    echo "[DEBUG] build_id: $build_id" >&2
+    echo "[DEBUG] trigger_type: $trigger_type" >&2
+    echo "[DEBUG] trigger_data: $trigger_data" >&2
+    echo "[DEBUG] queue_limit: $queue_limit" >&2
     
-    # 使用混合锁策略的乐观锁加入队�?    source .github/workflows/scripts/hybrid-lock.sh
+    # 使用混合锁策略的乐观锁加入队列
+    source .github/workflows/scripts/hybrid-lock.sh
     main_hybrid_lock "join_queue" "$build_id" "$trigger_type" "$trigger_data" "$queue_limit"
+    
+    echo "[DEBUG] main_hybrid_lock 执行完成" >&2
+    echo "[DEBUG] join_success 输出: $(echo "$join_success" | tail -1)" >&2
     
     # 检查结果
     if [ "$(echo "$join_success" | tail -1)" = "true" ]; then
-        echo "Successfully joined queue using optimistic lock"
+        echo "[DEBUG] 使用乐观锁成功加入队列" >&2
         return 0
     else
-        echo "Failed to join queue"
+        echo "[DEBUG] 加入队列失败" >&2
         return 1
     fi
 }
@@ -396,18 +425,117 @@ wait_for_queue_turn() {
     local build_id="$1"
     local queue_issue_number="$2"
     
-    echo "Starting hybrid lock queue wait process..."
+    echo "[DEBUG] wait_for_queue_turn: 开始混合锁队列等待过程" >&2
+    echo "[DEBUG] build_id: $build_id" >&2
+    echo "[DEBUG] queue_issue_number: $queue_issue_number" >&2
     
     # 使用混合锁策略的悲观锁获取构建锁
     source .github/workflows/scripts/hybrid-lock.sh
     main_hybrid_lock "acquire_lock" "$build_id" "$queue_issue_number"
     
+    echo "[DEBUG] main_hybrid_lock acquire_lock 执行完成" >&2
+    echo "[DEBUG] lock_acquired 输出: $(echo "$lock_acquired" | tail -1)" >&2
+    
     # 检查结果
     if [ "$(echo "$lock_acquired" | tail -1)" = "true" ]; then
-        echo "Successfully acquired build lock using pessimistic lock"
+        echo "[DEBUG] 使用悲观锁成功获取构建锁" >&2
         return 0
     else
-        echo "Failed to acquire build lock"
+        echo "[DEBUG] 获取构建锁失败" >&2
         return 1
+    fi
+} 
+
+# 自动清理队列中过期和已完成的项
+clean_queue_items() {
+    local queue_issue_number="1"
+    local max_hours=6
+    local now_ts=$(date +%s)
+    local changed=0
+    
+    echo "[DEBUG] clean_queue_items: 开始清理队列项" >&2
+    echo "[DEBUG] max_hours: $max_hours" >&2
+    echo "[DEBUG] now_ts: $now_ts" >&2
+    
+    local queue_manager_content=$(get_queue_manager_content "$queue_issue_number")
+    echo "[DEBUG] 获取到的队列管理issue内容长度: ${#queue_manager_content}" >&2
+    
+    local queue_data=$(extract_queue_json "$queue_manager_content")
+    echo "[DEBUG] 提取的队列数据: $queue_data" >&2
+    
+    if [ -z "$queue_data" ] || ! echo "$queue_data" | jq . > /dev/null 2>&1; then
+        echo "[DEBUG] 队列数据无效，跳过清理" >&2
+        return 0
+    fi
+    
+    local current_queue=$(echo "$queue_data" | jq -c '.queue // []')
+    echo "[DEBUG] 当前队列: $current_queue" >&2
+    
+    local new_queue='[]'
+    local queue_length=$(echo "$current_queue" | jq 'length // 0')
+    echo "[DEBUG] 队列长度: $queue_length" >&2
+    
+    for i in $(seq 0 $((queue_length - 1))); do
+        local row=$(echo "$current_queue" | jq -c ".[$i]")
+        echo "[DEBUG] 处理队列项 $i: $row" >&2
+        
+        local build_id=$(echo "$row" | jq -r '.build_id')
+        local join_time=$(echo "$row" | jq -r '.join_time // empty')
+        local keep=1
+        
+        echo "[DEBUG] build_id: $build_id, join_time: $join_time" >&2
+        
+        # 检查超时
+        if [ -n "$join_time" ]; then
+            local join_ts=$(date -d "$join_time" +%s 2>/dev/null || echo 0)
+            local diff_hours=$(( (now_ts - join_ts) / 3600 ))
+            echo "[DEBUG] join_ts: $join_ts, diff_hours: $diff_hours" >&2
+            
+            if [ "$diff_hours" -ge "$max_hours" ]; then
+                echo "[DEBUG] build_id $build_id 超时 $diff_hours 小时，移除" >&2
+                keep=0
+            fi
+        fi
+        
+        # 检查 workflow run 状态
+        if [ "$keep" = "1" ]; then
+            echo "[DEBUG] 检查 workflow run 状态: $build_id" >&2
+            local run_json=$(curl -s -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+                "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$build_id")
+            local status=$(echo "$run_json" | jq -r '.status // empty')
+            local conclusion=$(echo "$run_json" | jq -r '.conclusion // empty')
+            echo "[DEBUG] run status: $status, conclusion: $conclusion" >&2
+            
+            if [ "$status" = "completed" ] || [ "$conclusion" = "success" ] || [ "$conclusion" = "failure" ] || [ "$conclusion" = "cancelled" ]; then
+                echo "[DEBUG] build_id $build_id 已结束($status/$conclusion)，移除" >&2
+                keep=0
+            fi
+        fi
+        
+        if [ "$keep" = "1" ]; then
+            echo "[DEBUG] 保留队列项: $build_id" >&2
+            # 使用临时文件避免命令行参数过长
+            local temp_file=$(mktemp)
+            echo "$row" > "$temp_file"
+            new_queue=$(echo "$new_queue" | jq --slurpfile item "$temp_file" '. + $item')
+            rm -f "$temp_file"
+        else
+            echo "[DEBUG] 移除队列项: $build_id" >&2
+            changed=1
+        fi
+    done
+    
+    echo "[DEBUG] 清理后队列: $new_queue" >&2
+    echo "[DEBUG] changed: $changed" >&2
+    
+    if [ "$changed" = "1" ]; then
+        local new_version=$(( $(echo "$queue_data" | jq -r '.version // 1') + 1 ))
+        local new_queue_data=$(echo "$queue_data" | jq --argjson new_queue "$new_queue" --arg new_version "$new_version" '.queue = $new_queue | .version = ($new_version | tonumber)')
+        echo "[DEBUG] 新的队列数据: $new_queue_data" >&2
+        
+        update_queue_issue_with_hybrid_lock "$queue_issue_number" "$new_queue_data" "空闲 🔓" "空闲 🔓"
+        echo "[DEBUG] 队列已清理并更新" >&2
+    else
+        echo "[DEBUG] 队列无需清理" >&2
     fi
 } 

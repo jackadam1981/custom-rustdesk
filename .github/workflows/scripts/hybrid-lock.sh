@@ -3,6 +3,9 @@
 # 排队阶段：乐观锁（快速重试）
 # 构建阶段：悲观锁（确保独占）
 
+# 加载调试工具
+source .github/workflows/scripts/debug-utils.sh
+
 # 配置参数
 MAX_QUEUE_RETRIES=3
 QUEUE_RETRY_DELAY=1
@@ -13,8 +16,26 @@ LOCK_TIMEOUT_HOURS=2      # 锁超时时间
 # 通用函数：从队列管理issue中提取JSON数据
 extract_queue_json() {
     local issue_content="$1"
+    
+    debug_enter "extract_queue_json" "issue_content_length=${#issue_content}"
+    
     # 兼容性更好的提取方法，提取 ```json ... ``` 之间的内容
-    echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | sed '1d;$d' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+    local json_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | sed '1d;$d' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    
+    debug_var "提取的原始JSON数据" "$json_data"
+    
+    # 验证JSON格式
+    if [ -n "$json_data" ] && echo "$json_data" | jq . > /dev/null 2>&1; then
+        debug_success "JSON验证成功，返回压缩格式"
+        local result=$(echo "$json_data" | jq -c .)
+        debug_exit "extract_queue_json" 0 "$result"
+        echo "$result"
+    else
+        debug_warning "JSON验证失败或为空，返回默认格式"
+        local result='{"queue":[],"run_id":null,"version":1}'
+        debug_exit "extract_queue_json" 0 "$result"
+        echo "$result"
+    fi
 }
 
 # 通用函数：获取队列管理issue内容
@@ -31,9 +52,14 @@ update_queue_issue() {
     local issue_number="$1"
     local body="$2"
     
-    echo "Updating issue $issue_number..." >&2
-    echo "Repository: $GITHUB_REPOSITORY" >&2
-    echo "Token available: $([ -n "$GITHUB_TOKEN" ] && echo "yes" || echo "no")" >&2
+    debug_enter "update_queue_issue" "issue_number=$issue_number, body_length=${#body}"
+    debug_var "Repository" "$GITHUB_REPOSITORY"
+    debug_var "Token状态" "$([ -n "$GITHUB_TOKEN" ] && echo "已设置" || echo "未设置")"
+    debug_var "Body预览" "${body:0:100}"
+    
+    # 构建JSON payload
+    local json_payload=$(jq -n --arg body "$body" '{"body": $body}')
+    debug_json "JSON payload" "$json_payload"
     
     # 实际更新
     local response=$(curl -s -w "\n%{http_code}" -X PATCH \
@@ -41,15 +67,20 @@ update_queue_issue() {
         -H "Accept: application/vnd.github.v3+json" \
         -H "Content-Type: application/json" \
         "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/$issue_number" \
-        -d "$(jq -n --arg body "$body" '{"body": $body}')")
+        -d "$json_payload")
     local http_code=$(echo "$response" | tail -n1)
     local response_body=$(echo "$response" | head -n -1)
+    
+    debug_api "PATCH" "issues/$issue_number" "$response_body" "$http_code"
+    
     echo "$response_body"  # 只输出 JSON
     if [ "$http_code" -eq 200 ] || [ "$http_code" -eq 201 ]; then
+        debug_success "更新成功"
+        debug_exit "update_queue_issue" 0
         return 0
     else
-        echo "Failed to update issue. HTTP Code: $http_code" >&2
-        echo "$response_body" >&2
+        debug_error "更新失败" "HTTP Code: $http_code"
+        debug_exit "update_queue_issue" 1
         return 1
     fi
 }
@@ -63,17 +94,37 @@ update_queue_issue_with_hybrid_lock() {
     local current_build="${5:-无}"
     local lock_holder="${6:-无}"
     
+    echo "[DEBUG] update_queue_issue_with_hybrid_lock: 开始使用混合锁模板更新" >&2
+    echo "[DEBUG] issue_number: $issue_number" >&2
+    echo "[DEBUG] optimistic_lock_status: $optimistic_lock_status" >&2
+    echo "[DEBUG] pessimistic_lock_status: $pessimistic_lock_status" >&2
+    echo "[DEBUG] current_build: $current_build" >&2
+    echo "[DEBUG] lock_holder: $lock_holder" >&2
+    echo "[DEBUG] queue_data: $queue_data" >&2
+    
     # 获取当前版本
     local version=$(echo "$queue_data" | jq -r '.version // 1')
     local current_time=$(date '+%Y-%m-%d %H:%M:%S')
+    
+    echo "[DEBUG] version: $version" >&2
+    echo "[DEBUG] current_time: $current_time" >&2
     
     # 使用混合锁模板生成正文
     source .github/workflows/scripts/issue-templates.sh
     local body=$(generate_hybrid_lock_status_body "$current_time" "$queue_data" "$version" "$optimistic_lock_status" "$pessimistic_lock_status" "$current_build" "$lock_holder")
     
+    echo "[DEBUG] 生成的body长度: ${#body}" >&2
+    echo "[DEBUG] body预览 (前200字符): ${body:0:200}..." >&2
+    
     # 更新issue并返回结果
-    update_queue_issue "$issue_number" "$body"
-    return $?
+    local result=$(update_queue_issue "$issue_number" "$body")
+    local exit_code=$?
+    
+    echo "[DEBUG] update_queue_issue 退出码: $exit_code" >&2
+    echo "[DEBUG] update_queue_issue 结果: $result" >&2
+    
+    echo "$result"
+    return $exit_code
 }
 
 # 自动清理队列中过期和已完成的项
@@ -115,7 +166,11 @@ clean_queue_items() {
             fi
         fi
         if [ "$keep" = "1" ]; then
-            new_queue=$(echo "$new_queue" | jq --argjson item "$row" '. + [$item]')
+            # 使用临时文件避免命令行参数过长
+            local temp_file=$(mktemp)
+            echo "$row" > "$temp_file"
+            new_queue=$(echo "$new_queue" | jq --slurpfile item "$temp_file" '. + $item')
+            rm -f "$temp_file"
         else
             changed=1
         fi
@@ -139,22 +194,30 @@ join_queue_optimistic() {
     local trigger_data="$3"
     local queue_limit="$4"
     
-    echo "Starting optimistic queue join for build $build_id..."
+    echo "[DEBUG] join_queue_optimistic: 开始乐观锁加入队列" >&2
+    echo "[DEBUG] build_id: $build_id" >&2
+    echo "[DEBUG] trigger_type: $trigger_type" >&2
+    echo "[DEBUG] trigger_data: $trigger_data" >&2
+    echo "[DEBUG] queue_limit: $queue_limit" >&2
     
     for attempt in $(seq 1 $MAX_QUEUE_RETRIES); do
-        echo "Queue join attempt $attempt of $MAX_QUEUE_RETRIES"
+        echo "[DEBUG] 队列加入尝试 $attempt of $MAX_QUEUE_RETRIES" >&2
         
         # 获取最新队列数据
         local queue_manager_content=$(get_queue_manager_content "1")
+        echo "[DEBUG] 获取到的队列管理issue内容长度: ${#queue_manager_content}" >&2
+        
         local queue_data=$(extract_queue_json "$queue_manager_content")
+        echo "[DEBUG] 提取的队列数据: $queue_data" >&2
         
         if [ -z "$queue_data" ] || ! echo "$queue_data" | jq . > /dev/null 2>&1; then
-            echo "Invalid queue data, attempting to reset queue"
+            echo "[DEBUG] 队列数据无效，尝试重置队列" >&2
             if reset_queue_to_default "1" "队列数据无效，重置为默认模板"; then
                 queue_manager_content=$(get_queue_manager_content "1")
                 queue_data=$(extract_queue_json "$queue_manager_content")
+                echo "[DEBUG] 重置后的队列数据: $queue_data" >&2
             else
-                echo "Failed to reset queue, using default queue data"
+                echo "[DEBUG] 重置队列失败，使用默认队列数据" >&2
                 queue_data='{"version": 1, "run_id": null, "queue": []}'
             fi
         fi
@@ -164,9 +227,13 @@ join_queue_optimistic() {
         local current_queue=$(echo "$queue_data" | jq -r '.queue // []')
         local queue_length=$(echo "$current_queue" | jq 'length // 0')
         
+        echo "[DEBUG] 当前版本: $current_version" >&2
+        echo "[DEBUG] 当前队列长度: $queue_length" >&2
+        echo "[DEBUG] 当前队列内容: $current_queue" >&2
+        
         # 检查队列限制
         if [ "$queue_length" -ge "$queue_limit" ]; then
-            echo "Queue is full (limit: $queue_limit)"
+            echo "[DEBUG] 队列已满 (限制: $queue_limit)" >&2
             echo "join_success=false" >> $GITHUB_OUTPUT
             echo "queue_position=-1" >> $GITHUB_OUTPUT
             return 0  # 正常退出，不是错误
@@ -176,7 +243,7 @@ join_queue_optimistic() {
         local existing_item=$(echo "$current_queue" | jq -r --arg build_id "$build_id" '.[] | select(.build_id == $build_id) | .issue_number // empty')
         if [ -n "$existing_item" ]; then
             local queue_position=$(echo "$current_queue" | jq -r --arg build_id "$build_id" 'index(.[] | select(.build_id == $build_id)) + 1')
-            echo "Already in queue at position: $queue_position"
+            echo "[DEBUG] 已在队列中，位置: $queue_position" >&2
             echo "join_success=true" >> $GITHUB_OUTPUT
             echo "queue_position=$queue_position" >> $GITHUB_OUTPUT
             return 0
@@ -189,11 +256,15 @@ join_queue_optimistic() {
             parsed_trigger_data=$(echo "$trigger_data" | jq -r .)
         fi
         
+        echo "[DEBUG] 解析的触发数据: $parsed_trigger_data" >&2
+        
         # 提取构建信息
         local tag=$(echo "$parsed_trigger_data" | jq -r '.tag // empty')
         local customer=$(echo "$parsed_trigger_data" | jq -r '.customer // empty')
         local customer_link=$(echo "$parsed_trigger_data" | jq -r '.customer_link // empty')
         local slogan=$(echo "$parsed_trigger_data" | jq -r '.slogan // empty')
+        
+        echo "[DEBUG] 提取的构建信息 - tag: $tag, customer: $customer, slogan: $slogan" >&2
         
         # 创建新队列项
         local new_queue_item=$(jq -c -n \
@@ -207,37 +278,41 @@ join_queue_optimistic() {
             --arg join_time "$current_time" \
             '{build_id: $build_id, build_title: $build_title, trigger_type: $trigger_type, tag: $tag, customer: $customer, customer_link: $customer_link, slogan: $slogan, join_time: $join_time}')
         
+        echo "[DEBUG] 创建的新队列项: $new_queue_item" >&2
+        
         # 尝试乐观更新：检查版本号
         local new_queue=$(echo "$current_queue" | jq --argjson new_item "$new_queue_item" '. + [$new_item]')
         local new_queue_data=$(echo "$queue_data" | jq --argjson new_queue "$new_queue" --arg new_version "$((current_version + 1))" '.queue = $new_queue | .version = ($new_version | tonumber)')
         
+        echo "[DEBUG] 新的队列数据: $new_queue_data" >&2
+        
         # 尝试更新（使用混合锁模板）
         local update_response=$(update_queue_issue_with_hybrid_lock "1" "$new_queue_data" "占用 🔒" "空闲 🔓")
         # 调试：输出更新响应
-        echo "[调试] update_response: $update_response"
+        echo "[DEBUG] update_response: $update_response" >&2
         # 验证更新是否成功
         if echo "$update_response" | jq -e '.id' > /dev/null 2>&1; then
             local queue_position=$((queue_length + 1))
-            echo "Successfully joined queue at position $queue_position"
+            echo "[DEBUG] 成功加入队列，位置: $queue_position" >&2
             
             # 生成乐观锁通知
             source .github/workflows/scripts/issue-templates.sh
             local notification=$(generate_optimistic_lock_notification "加入队列" "$build_id" "$queue_position" "$(date '+%Y-%m-%d %H:%M:%S')" "$attempt")
-            echo "Optimistic lock notification: $notification"
+            echo "[DEBUG] 乐观锁通知: $notification" >&2
             
             echo "join_success=true" >> $GITHUB_OUTPUT
             echo "queue_position=$queue_position" >> $GITHUB_OUTPUT
             return 0
         else
-            echo "Update failed on attempt $attempt"
+            echo "[DEBUG] 更新失败，尝试 $attempt" >&2
             if [ "$attempt" -lt "$MAX_QUEUE_RETRIES" ]; then
-                echo "Retrying in $QUEUE_RETRY_DELAY seconds..."
+                echo "[DEBUG] $QUEUE_RETRY_DELAY 秒后重试..." >&2
                 sleep $QUEUE_RETRY_DELAY
             fi
         fi
     done
     
-    echo "Failed to join queue after $MAX_QUEUE_RETRIES attempts"
+    echo "[DEBUG] 经过 $MAX_QUEUE_RETRIES 次尝试后加入队列失败" >&2
     echo "join_success=false" >> $GITHUB_OUTPUT
     echo "queue_position=-1" >> $GITHUB_OUTPUT
     return 1
@@ -453,34 +528,43 @@ main_hybrid_lock() {
     local trigger_data="$4"
     local queue_limit="${5:-5}"
     
+    echo "[DEBUG] main_hybrid_lock: 开始执行混合锁策略" >&2
+    echo "[DEBUG] action: $action" >&2
+    echo "[DEBUG] build_id: $build_id" >&2
+    echo "[DEBUG] trigger_type: $trigger_type" >&2
+    echo "[DEBUG] trigger_data: $trigger_data" >&2
+    echo "[DEBUG] queue_limit: $queue_limit" >&2
+    
     case "$action" in
         "join_queue")
-            echo "Executing optimistic queue join"
+            echo "[DEBUG] 执行乐观锁队列加入" >&2
             join_queue_optimistic "$build_id" "$trigger_type" "$trigger_data" "$queue_limit"
             ;;
         "acquire_lock")
-            echo "Executing pessimistic lock acquisition"
+            echo "[DEBUG] 执行悲观锁获取" >&2
             acquire_build_lock_pessimistic "$build_id" "1"
             ;;
         "release_lock")
-            echo "Executing lock release"
+            echo "[DEBUG] 执行锁释放" >&2
             release_build_lock "$build_id" "1"
             ;;
         "check_timeout")
-            echo "Executing timeout check"
+            echo "[DEBUG] 执行超时检查" >&2
             check_lock_timeout "1"
             ;;
         "reset_queue")
             local reason="${3:-队列重置}"
-            echo "Executing queue reset"
+            echo "[DEBUG] 执行队列重置" >&2
             reset_queue_to_default "1" "$reason"
             ;;
         *)
-            echo "Unknown action: $action"
+            echo "[DEBUG] 未知操作: $action" >&2
             echo "Usage: $0 {join_queue|acquire_lock|release_lock|check_timeout|reset_queue}"
             exit 1
             ;;
     esac
+    
+    echo "[DEBUG] main_hybrid_lock: 执行完成" >&2
 }
 
 # 如果直接运行此脚本

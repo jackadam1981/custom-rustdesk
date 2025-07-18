@@ -1,8 +1,9 @@
 #!/bin/bash
 # 构建脚本
-# 这个文件处理构建逻辑和数据处�?
+# 这个文件处理构建逻辑和数据处理
 # 加载依赖脚本
 
+source .github/workflows/scripts/debug-utils.sh
 source .github/workflows/scripts/json-validator.sh
 
 # 提取数据
@@ -64,20 +65,26 @@ process_build() {
     local input_data="$1"
     local pause_seconds="${2:-0}"
     
-    echo "Starting build process..."
+    debug_enter "process_build" "input_data_length=${#input_data}, pause_seconds=$pause_seconds"
+    debug_success "开始构建过程"
     
     # 提取数据
     local extracted_data=$(extract_build_data "$input_data")
+    debug_json "提取的构建数据" "$extracted_data"
     
-    # 如果需要暂停测�?    if [ "$pause_seconds" -gt 0 ]; then
+    # 如果需要暂停测试
+    if [ "$pause_seconds" -gt 0 ]; then
+        debug_warning "暂停构建进行队列测试" "${pause_seconds}秒"
         pause_for_test "$pause_seconds"
     fi
     
     # 处理构建数据
     local processed_data=$(process_build_data "$extracted_data")
+    debug_json "处理后的构建数据" "$processed_data"
     
     # 输出构建数据
     output_build_data "$processed_data"
     
-    echo "Build process completed successfully"
+    debug_success "构建过程成功完成"
+    debug_exit "process_build" 0
 } 

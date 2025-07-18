@@ -3,6 +3,7 @@
 # 这个文件处理构建审核和参数验证逻辑
 
 # 加载依赖脚本
+source .github/workflows/scripts/debug-utils.sh
 source .github/workflows/scripts/issue-templates.sh
 source .github/workflows/scripts/issue-manager.sh
 
