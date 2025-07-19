@@ -20,9 +20,10 @@ _QUEUE_MANAGER_CURRENT_TIME=""
 # 混合锁配置参数
 _QUEUE_MANAGER_MAX_RETRIES=3
 _QUEUE_MANAGER_RETRY_DELAY=1
-_QUEUE_MANAGER_MAX_WAIT_TIME=7200  # 2小时
-_QUEUE_MANAGER_CHECK_INTERVAL=30   # 30秒
-_QUEUE_MANAGER_LOCK_TIMEOUT_HOURS=2      # 锁超时时间
+_QUEUE_MANAGER_MAX_WAIT_TIME=7200  # 2小时 - 构建锁获取超时
+_QUEUE_MANAGER_CHECK_INTERVAL=30   # 30秒 - 检查间隔
+_QUEUE_MANAGER_LOCK_TIMEOUT_HOURS=2      # 构建锁超时时间（2小时）
+_QUEUE_MANAGER_QUEUE_TIMEOUT_HOURS=6     # 队列锁超时时间（6小时）
 
 # 构造函数
 queue_manager_init() {
@@ -177,8 +178,10 @@ queue_manager_join_queue() {
     echo "=== 乐观锁加入队列 ==="
     debug "log" "Starting optimistic lock queue join process..."
     
-    # 清理队列
+    # 清理队列和检查当前锁
     queue_manager_auto_clean_expired
+    queue_manager_check_and_clean_current_lock
+    queue_manager_clean_completed
     
     # 尝试加入队列（最多重试3次）
     for attempt in $(seq 1 $_QUEUE_MANAGER_MAX_RETRIES); do
@@ -258,8 +261,10 @@ queue_manager_acquire_lock() {
     local start_time=$(date +%s)
     
     while [ $(($(date +%s) - start_time)) -lt $_QUEUE_MANAGER_MAX_WAIT_TIME ]; do
-        # 刷新队列数据
+        # 刷新队列数据并清理
         queue_manager_refresh
+        queue_manager_check_and_clean_current_lock
+        queue_manager_clean_completed
         
         # 检查是否已在队列中
         local in_queue=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq --arg build_id "$build_id" '.queue | map(select(.build_id == $build_id)) | length')
@@ -408,16 +413,137 @@ queue_manager_clean_completed() {
     fi
 }
 
+# 公共方法：检查和清理当前持有锁的构建
+queue_manager_check_and_clean_current_lock() {
+    echo "=== 检查和清理当前持有锁的构建 ==="
+    debug "log" "Checking current lock holder..."
+    
+    local current_run_id=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq -r '.run_id // null')
+    
+    if [ "$current_run_id" = "null" ]; then
+        debug "log" "No current lock holder"
+        return 0
+    fi
+    
+    debug "log" "Current lock holder: $current_run_id"
+    
+    # 检查当前持有锁的构建状态
+    local run_status="unknown"
+    if [ -n "$GITHUB_TOKEN" ]; then
+        local run_response=$(curl -s \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$current_run_id")
+        
+        if echo "$run_response" | jq -e '.message' | grep -q "Not Found"; then
+            run_status="not_found"
+        else
+            run_status=$(echo "$run_response" | jq -r '.status // "unknown"')
+        fi
+    fi
+    
+    debug "log" "Current lock holder status: $run_status"
+    
+    # 检查是否需要释放锁
+    case "$run_status" in
+        "completed"|"cancelled"|"failure"|"skipped"|"not_found"|"unknown")
+            debug "log" "Current lock holder needs cleanup (status: $run_status), releasing lock"
+            
+            # 释放锁
+            local updated_queue_data=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq '
+                .run_id = null |
+                .version = (.version // 0) + 1
+            ')
+            
+            local update_response=$(queue_manager_update_with_lock "$updated_queue_data" "占用 🔒" "空闲 🔓")
+            
+            if [ $? -eq 0 ]; then
+                debug "success" "Successfully released lock for completed build"
+                _QUEUE_MANAGER_QUEUE_DATA="$updated_queue_data"
+                return 0
+            else
+                debug "error" "Failed to release lock for completed build"
+                return 1
+            fi
+            ;;
+        "queued"|"in_progress"|"waiting")
+            debug "log" "Current lock holder is still running (status: $run_status)"
+            
+            # 检查构建锁超时
+            local build_timeout_seconds=$((_QUEUE_MANAGER_LOCK_TIMEOUT_HOURS * 3600))
+            local current_time=$(date +%s)
+            
+            # 获取构建开始时间（从队列中查找）
+            local build_start_time=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq --arg build_id "$current_run_id" '
+                .queue[] | select(.build_id == $build_id) | .join_time
+            ')
+            
+            if [ -n "$build_start_time" ] && [ "$build_start_time" != "null" ]; then
+                local build_start_epoch=$(date -d "$build_start_time" +%s 2>/dev/null || echo "0")
+                local elapsed_time=$((current_time - build_start_epoch))
+                
+                if [ "$elapsed_time" -gt "$build_timeout_seconds" ]; then
+                    debug "log" "Build lock timeout (${elapsed_time}s > ${build_timeout_seconds}s), releasing lock"
+                    
+                    # 释放超时的构建锁
+                    local updated_queue_data=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq '
+                        .run_id = null |
+                        .version = (.version // 0) + 1
+                    ')
+                    
+                    local update_response=$(queue_manager_update_with_lock "$updated_queue_data" "占用 🔒" "空闲 🔓")
+                    
+                    if [ $? -eq 0 ]; then
+                        debug "success" "Successfully released timeout build lock"
+                        _QUEUE_MANAGER_QUEUE_DATA="$updated_queue_data"
+                        return 0
+                    else
+                        debug "error" "Failed to release timeout build lock"
+                        return 1
+                    fi
+                else
+                    debug "log" "Build lock still valid (${elapsed_time}s < ${build_timeout_seconds}s)"
+                fi
+            fi
+            
+            return 0
+            ;;
+        *)
+            debug "log" "Current lock holder has unknown status: $run_status, releasing lock"
+            
+            # 释放锁
+            local updated_queue_data=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq '
+                .run_id = null |
+                .version = (.version // 0) + 1
+            ')
+            
+            local update_response=$(queue_manager_update_with_lock "$updated_queue_data" "占用 🔒" "空闲 🔓")
+            
+            if [ $? -eq 0 ]; then
+                debug "success" "Successfully released lock for unknown status build"
+                _QUEUE_MANAGER_QUEUE_DATA="$updated_queue_data"
+                return 0
+            else
+                debug "error" "Failed to release lock for unknown status build"
+                return 1
+            fi
+            ;;
+    esac
+}
+
 # 公共方法：自动清理过期项
 queue_manager_auto_clean_expired() {
     echo "=== 自动清理过期项 ==="
-    debug "log" "Cleaning expired queue items (older than 6 hours)..."
+    debug "log" "Cleaning expired queue items (older than $_QUEUE_MANAGER_QUEUE_TIMEOUT_HOURS hours)..."
     
-    # 移除超过6小时的队列项（包括workflow_dispatch类型）
-    local cleaned_queue=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq --arg current_time "$_QUEUE_MANAGER_CURRENT_TIME" '
+    # 计算超时秒数
+    local queue_timeout_seconds=$((_QUEUE_MANAGER_QUEUE_TIMEOUT_HOURS * 3600))
+    
+    # 移除超过队列超时时间的队列项
+    local cleaned_queue=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq --arg current_time "$_QUEUE_MANAGER_CURRENT_TIME" --arg timeout_seconds "$queue_timeout_seconds" '
         .queue = (.queue | map(select(
-            # 检查所有类型是否在6小时内
-            (($current_time | fromdateiso8601) - (.join_time | fromdateiso8601)) < 21600
+            # 检查所有类型是否在队列超时时间内
+            (($current_time | fromdateiso8601) - (.join_time | fromdateiso8601)) < ($timeout_seconds | tonumber)
         )))
     ')
     
@@ -576,6 +702,9 @@ queue_manager() {
             ;;
         "cleanup")
             queue_manager_full_cleanup
+            ;;
+        "check-lock")
+            queue_manager_check_and_clean_current_lock
             ;;
         "reset")
             local reason="${1:-手动重置}"

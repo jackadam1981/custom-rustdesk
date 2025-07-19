@@ -202,7 +202,7 @@ process_finish() {
     local build_params=""
     if [ "$build_status" = "success" ]; then
         build_params=$(get_and_decrypt_build_params "$build_id")
-        if [ $? -eq 0 ]; then
+    if [ $? -eq 0 ]; then
             eval "$build_params"
         fi
     fi

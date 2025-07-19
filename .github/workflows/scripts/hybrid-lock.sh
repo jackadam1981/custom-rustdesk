@@ -63,7 +63,7 @@ pessimistic_lock_acquire() {
         # 检查是否已经持有锁
         if $acquire_function "$resource_id" "$lock_key" "check"; then
             debug "log" "Already holding pessimistic lock"
-            return 0
+                    return 0
         fi
         
         debug "log" "Pessimistic lock not available, waiting $LOCK_CHECK_INTERVAL seconds..."
@@ -84,7 +84,7 @@ pessimistic_lock_release() {
     
     if $release_function "$resource_id" "$lock_key"; then
         debug "success" "Pessimistic lock released successfully"
-        return 0
+            return 0
     else
         debug "error" "Failed to release pessimistic lock"
         return 1
