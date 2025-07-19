@@ -281,6 +281,62 @@ generate_cleanup_reasons() {
     echo "$reason_text"
 }
 
+# 生成构建拒绝回复
+generate_build_rejection_comment() {
+    local reject_reason="$1"
+    local current_time="$2"
+    
+    cat <<EOF
+## ❌ 构建请求被拒绝
+
+**拒绝原因：** $reject_reason
+
+**拒绝时间：** $current_time
+
+请检查构建参数后重新提交请求。
+
+---
+*如有疑问，请联系管理员*
+EOF
+}
+
+# 生成综合拒绝回复（包含所有问题）
+generate_comprehensive_rejection_comment() {
+    local issues_json="$1"
+    local current_time="$2"
+    
+    # 解析问题列表
+    local issues_count=$(echo "$issues_json" | jq 'length' 2>/dev/null)
+    
+    cat <<EOF
+## ❌ 构建请求被拒绝
+
+**拒绝时间：** $current_time
+
+**发现的问题：** ($issues_count 个问题)
+
+EOF
+    
+    # 输出每个问题
+    echo "$issues_json" | jq -r '.[]' 2>/dev/null | while IFS= read -r issue; do
+        echo "- ❌ $issue"
+    done
+    
+    cat <<EOF
+
+### 修复建议
+1. **缺失参数：** 请填写所有必需的服务器参数
+2. **邮箱格式：** 请使用有效的邮箱地址格式（如：user@example.com）
+3. **公网地址：** 使用公网IP或域名需要管理员审核，请使用私有IP地址或联系管理员
+
+### 重新提交
+请修复上述问题后重新提交构建请求。
+
+---
+*如有疑问，请联系管理员*
+EOF
+}
+
 # 生成清理后的 issue 内容
 generate_cleaned_issue_body() {
     local tag="$1"
@@ -307,11 +363,11 @@ EOF
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     if [ $# -lt 2 ]; then
         echo "Usage: $0 <template_type> <parameters...>"
-        echo "Template types: queue_management, hybrid_lock, cleanup, reset, review, optimistic, pessimistic, reset_notification, cleaned_issue"
+        echo "Template types: queue_management, hybrid_lock, cleanup, reset, review, optimistic, pessimistic, reset_notification, cleaned_issue, rejection"
         exit 1
     fi
     
-    local template_type="$1"
+    template_type="$1"
     shift 1
     
     case "$template_type" in
@@ -341,6 +397,9 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             ;;
         "cleaned_issue")
             generate_cleaned_issue_body "$@"
+            ;;
+        "rejection")
+            generate_build_rejection_comment "$@"
             ;;
         *)
             echo "Unknown template type: $template_type"

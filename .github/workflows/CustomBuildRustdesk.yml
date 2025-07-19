@@ -107,6 +107,8 @@ jobs:
         id: review
         env:
           TRIGGER_DATA: ${{ needs.trigger.outputs.trigger_data }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
         run: |
           source .github/workflows/scripts/review.sh
           process_review "$TRIGGER_DATA" "${{ github.actor }}" "${{ github.repository_owner }}"
