@@ -23,7 +23,7 @@ get_and_decrypt_build_params() {
     local current_build_id="$1"
     
     # 使用队列管理器获取队列数据
-    local queue_data=$(queue_manager "data")
+    local queue_data=$(queue_manager "data" "${QUEUE_ISSUE_NUMBER:-1}")
     
     if [ $? -ne 0 ]; then
         debug "error" "Failed to get queue data"
@@ -231,7 +231,7 @@ process_finish() {
         debug "warning" "GITHUB_TOKEN not set, skipping lock release"
         lock_released="skipped"
     else
-        if queue_manager "release" "$build_id"; then
+        if queue_manager "release" "${QUEUE_ISSUE_NUMBER:-1}" "$build_id"; then
             debug "success" "Successfully released build lock"
             lock_released="true"
         else

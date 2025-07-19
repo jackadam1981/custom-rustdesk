@@ -58,6 +58,8 @@ permissions:
 env:
   GITHUB_TOKEN: ${{ secrets.ISSUE_TOKEN }}
   ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+  # 队列管理配置
+  QUEUE_ISSUE_NUMBER: '1'
   # 调试配置 - 默认不开启调试，只在手动触发时可通过input控制
   DEBUG_ENABLED: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.enable_debug == 'true' || 'false' }}
 
@@ -136,7 +138,7 @@ jobs:
           
           # 使用队列管理器加入队列
           echo "Starting queue join process..."
-          join_result=$(queue_manager "join" \
+          join_result=$(queue_manager "join" "$QUEUE_ISSUE_NUMBER" \
                           "${{ needs.trigger.outputs.build_id }}" \
                           "${{ needs.trigger.outputs.trigger_type }}" \
                           "$TRIGGER_DATA" \
@@ -174,7 +176,7 @@ jobs:
           source .github/workflows/scripts/queue-manager.sh
 
           # 使用队列管理器获取构建锁
-          lock_result=$(queue_manager "acquire" "${{ needs.trigger.outputs.build_id }}" "1")
+          lock_result=$(queue_manager "acquire" "$QUEUE_ISSUE_NUMBER" "${{ needs.trigger.outputs.build_id }}" "1")
 
           # 检查获取锁的结果
           if [ $? -eq 0 ]; then

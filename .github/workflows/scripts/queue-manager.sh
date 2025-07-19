@@ -30,6 +30,7 @@ queue_manager_init() {
     local issue_number="${1:-1}"
     _QUEUE_MANAGER_ISSUE_NUMBER="$issue_number"
     _QUEUE_MANAGER_CURRENT_TIME=$(date '+%Y-%m-%d %H:%M:%S')
+    debug "log" "Initializing queue manager with issue #$_QUEUE_MANAGER_ISSUE_NUMBER"
     queue_manager_load_data
 }
 
@@ -43,8 +44,10 @@ queue_manager_load_data() {
         return 1
     fi
     
+    debug "log" "Queue manager content received"
+    
     _QUEUE_MANAGER_QUEUE_DATA=$(queue_manager_extract_json "$queue_manager_content")
-    debug "log" "Queue data loaded successfully"
+    debug "log" "Queue data loaded successfully: $_QUEUE_MANAGER_QUEUE_DATA"
 }
 
 # 私有方法：获取队列管理器内容
@@ -68,15 +71,43 @@ queue_manager_get_content() {
 queue_manager_extract_json() {
     local issue_content="$1"
     
+    debug "log" "Extracting JSON from issue content..."
+    
     # 提取 ```json ... ``` 代码块
     local json_data=$(echo "$issue_content" | jq -r '.body' | sed -n '/```json/,/```/p' | sed '1d;$d')
     json_data=$(echo "$json_data" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
     
+    debug "log" "Extracted JSON data: $json_data"
+    
+    # 如果提取失败，尝试直接查找JSON对象
+    if [ -z "$json_data" ]; then
+        debug "log" "No JSON code block found, trying to extract JSON object directly..."
+        json_data=$(echo "$issue_content" | jq -r '.body' | grep -o '{.*}' | head -1)
+        debug "log" "Direct JSON extraction: $json_data"
+    fi
+    
+    # 如果还是失败，尝试更宽松的提取
+    if [ -z "$json_data" ]; then
+        debug "log" "Direct extraction failed, trying pattern matching..."
+        # 查找包含 "version" 和 "queue" 的JSON对象
+        json_data=$(echo "$issue_content" | jq -r '.body' | grep -A 50 '"version"' | grep -B 50 '"queue"' | head -20 | tr '\n' ' ' | grep -o '{[^}]*"version"[^}]*"queue"[^}]*}')
+        debug "log" "Pattern matching extraction: $json_data"
+    fi
+    
     # 验证JSON格式并返回
-    if [ -n "$json_data" ] && echo "$json_data" | jq . > /dev/null 2>&1; then
-        local result=$(echo "$json_data" | jq -c .)
-        echo "$result"
+    if [ -n "$json_data" ]; then
+        debug "log" "JSON data is not empty, attempting to parse..."
+        if echo "$json_data" | jq . > /dev/null 2>&1; then
+            local result=$(echo "$json_data" | jq -c .)
+            debug "log" "Valid JSON extracted: $result"
+            echo "$result"
+        else
+            debug "error" "JSON parsing failed, using default"
+            local result='{"queue":[],"run_id":null,"version":1}'
+            echo "$result"
+        fi
     else
+        debug "error" "JSON data is empty, using default"
         local result='{"queue":[],"run_id":null,"version":1}'
         echo "$result"
     fi
@@ -90,10 +121,10 @@ queue_manager_update_issue() {
     local json_payload=$(jq -n --arg body "$body" '{"body": $body}')
     
     # 使用GitHub API更新issue
-    local response=$(curl -s -X PATCH \
-        -H "Authorization: token $GITHUB_TOKEN" \
-        -H "Accept: application/vnd.github.v3+json" \
-        -H "Content-Type: application/json" \
+  local response=$(curl -s -X PATCH \
+    -H "Authorization: token $GITHUB_TOKEN" \
+    -H "Accept: application/vnd.github.v3+json" \
+    -H "Content-Type: application/json" \
         https://api.github.com/repos/$GITHUB_REPOSITORY/issues/$_QUEUE_MANAGER_ISSUE_NUMBER \
         -d "$json_payload")
     
@@ -102,8 +133,8 @@ queue_manager_update_issue() {
         return 0
     else
         debug "error" "Failed to update queue issue"
-        return 1
-    fi
+    return 1
+  fi
 }
 
 # 私有方法：使用混合锁模板更新队列管理issue
@@ -195,8 +226,8 @@ queue_manager_join_queue() {
         
         if [ "$current_queue_length" -ge "$queue_limit" ]; then
             debug "error" "Queue is full ($current_queue_length/$queue_limit)"
-            return 1
-        fi
+    return 1
+  fi
         
         # 检查是否已在队列中
         local already_in_queue=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq --arg build_id "$build_id" '.queue | map(select(.build_id == $build_id)) | length')
@@ -206,14 +237,20 @@ queue_manager_join_queue() {
         fi
         
         # 解析触发数据
+        debug "log" "Parsing trigger data: $trigger_data"
         local parsed_trigger_data=$(echo "$trigger_data" | jq -c . 2>/dev/null || echo "{}")
+        debug "log" "Parsed trigger data: $parsed_trigger_data"
         
         # 提取构建信息
+        debug "log" "Extracting build information..."
         local tag=$(echo "$parsed_trigger_data" | jq -r '.tag // empty')
         local customer=$(echo "$parsed_trigger_data" | jq -r '.customer // empty')
         local slogan=$(echo "$parsed_trigger_data" | jq -r '.slogan // empty')
         
+        debug "log" "Extracted build info - tag: '$tag', customer: '$customer', slogan: '$slogan'"
+        
         # 创建新队列项
+        debug "log" "Creating new queue item..."
         local new_queue_item=$(jq -c -n \
             --arg build_id "$build_id" \
             --arg build_title "Custom Rustdesk Build" \
@@ -225,11 +262,16 @@ queue_manager_join_queue() {
             --arg join_time "$_QUEUE_MANAGER_CURRENT_TIME" \
             '{build_id: $build_id, build_title: $build_title, trigger_type: $trigger_type, tag: $tag, customer: $customer, customer_link: $customer_link, slogan: $slogan, join_time: $join_time}')
         
+        debug "log" "New queue item created: $new_queue_item"
+        
         # 添加新项到队列
+        debug "log" "Current queue data: $_QUEUE_MANAGER_QUEUE_DATA"
         local new_queue_data=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq --argjson new_item "$new_queue_item" '
             .queue += [$new_item] |
             .version = (.version // 0) + 1
         ')
+        
+        debug "log" "Updated queue data: $new_queue_data"
         
         # 更新队列（乐观锁）
         local update_response=$(queue_manager_update_with_lock "$new_queue_data" "占用 🔒" "空闲 🔓")
@@ -243,9 +285,9 @@ queue_manager_join_queue() {
         # 如果更新失败，等待后重试
         if [ "$attempt" -lt "$_QUEUE_MANAGER_MAX_RETRIES" ]; then
             sleep "$_QUEUE_MANAGER_RETRY_DELAY"
-        fi
-    done
-    
+    fi
+  done
+  
     debug "error" "Failed to join queue after $_QUEUE_MANAGER_MAX_RETRIES attempts"
     return 1
 }
@@ -293,8 +335,8 @@ queue_manager_acquire_lock() {
             fi
         elif [ "$current_run_id" = "$build_id" ]; then
             debug "log" "Already have build lock"
-            return 0
-        else
+    return 0
+  else
             debug "log" "Waiting for turn... Position: $((queue_position + 1)), Current: $current_run_id"
         fi
         
@@ -431,8 +473,8 @@ queue_manager_check_and_clean_current_lock() {
     local run_status="unknown"
     if [ -n "$GITHUB_TOKEN" ]; then
         local run_response=$(curl -s \
-            -H "Authorization: token $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
+                -H "Authorization: token $GITHUB_TOKEN" \
+                -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$current_run_id")
         
         if echo "$run_response" | jq -e '.message' | grep -q "Not Found"; then
