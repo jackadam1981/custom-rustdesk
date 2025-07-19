@@ -50,13 +50,19 @@ output_build_data() {
         debug "error" "build.sh输出的JSON格式不正确"
         return 1
     fi
-    echo "data=$output_data" >> $GITHUB_OUTPUT
-    echo "build_success=true" >> $GITHUB_OUTPUT
-    echo "download_url=https://example.com/download/rustdesk-custom.zip" >> $GITHUB_OUTPUT
-    echo "error_message=" >> $GITHUB_OUTPUT
+    
+    # 安全地输出到 GitHub Actions
+    if [ -n "$GITHUB_OUTPUT" ]; then
+        echo "data=$output_data" >> $GITHUB_OUTPUT
+        echo "build_success=true" >> $GITHUB_OUTPUT
+        echo "download_url=https://example.com/download/rustdesk-custom.zip" >> $GITHUB_OUTPUT
+        echo "error_message=" >> $GITHUB_OUTPUT
+    fi
     
     # 显示输出信息
     echo "Build output: $output_data"
+    echo "Build success: true"
+    echo "Download URL: https://example.com/download/rustdesk-custom.zip"
 }
 
 # 主构建函数

@@ -22,10 +22,8 @@ setup_finish_environment() {
 get_and_decrypt_build_params() {
     local current_build_id="$1"
     
-    # 获取队列数据
-    local queue_manager_issue="1"
-    local queue_manager_content=$(get_queue_manager_content "$queue_manager_issue")
-    local queue_data=$(extract_queue_json "$queue_manager_content")
+    # 使用队列管理器获取队列数据
+    local queue_data=$(queue_manager "data")
     
     if [ $? -ne 0 ]; then
         debug "error" "Failed to get queue data"
@@ -165,17 +163,22 @@ output_finish_data() {
     local build_status="$1"
     local notification_sent="$2"
     local cleanup_completed="$3"
+    local lock_released="$4"
     
-    # 输出到GitHub Actions输出变量
-    echo "finish_status=$build_status" >> $GITHUB_OUTPUT
-    echo "notification_sent=$notification_sent" >> $GITHUB_OUTPUT
-    echo "cleanup_completed=$cleanup_completed" >> $GITHUB_OUTPUT
+    # 输出到GitHub Actions输出变量（如果存在）
+    if [ -n "$GITHUB_OUTPUT" ]; then
+        echo "finish_status=$build_status" >> $GITHUB_OUTPUT
+        echo "notification_sent=$notification_sent" >> $GITHUB_OUTPUT
+        echo "cleanup_completed=$cleanup_completed" >> $GITHUB_OUTPUT
+        echo "lock_released=$lock_released" >> $GITHUB_OUTPUT
+    fi
     
     # 显示输出信息
     echo "Finish output:"
     echo "  Status: $build_status"
     echo "  Notification: $notification_sent"
     echo "  Cleanup: $cleanup_completed"
+    echo "  Lock Released: $lock_released"
 }
 
 # 主完成函数
@@ -219,8 +222,26 @@ process_finish() {
     cleanup_build_environment "$build_id"
     local cleanup_completed="true"
     
+    # 🔓 释放构建锁（重要：确保锁被释放）
+    debug "log" "Releasing build lock for build $build_id"
+    local lock_released="false"
+    
+    # 确保有必要的环境变量
+    if [ -z "$GITHUB_TOKEN" ]; then
+        debug "warning" "GITHUB_TOKEN not set, skipping lock release"
+        lock_released="skipped"
+    else
+        if queue_manager "release" "$build_id"; then
+            debug "success" "Successfully released build lock"
+            lock_released="true"
+        else
+            debug "error" "Failed to release build lock"
+            lock_released="false"
+        fi
+    fi
+    
     # 输出完成数据
-    output_finish_data "$build_status" "$notification_sent" "$cleanup_completed"
+    output_finish_data "$build_status" "$notification_sent" "$cleanup_completed" "$lock_released"
 }
 
 # 如果直接运行此脚本
