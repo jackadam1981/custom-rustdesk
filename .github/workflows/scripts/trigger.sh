@@ -14,8 +14,6 @@ source .github/workflows/scripts/issue-manager.sh
 extract_workflow_dispatch_params() {
     local event_data="$1"
     
-    debug "log" "进入函数: extract_workflow_dispatch_params, 参数: event_data_length=${#event_data}"
-    
     # 从完整事件数据中提取 inputs 部分
     local tag=$(echo "$event_data" | jq -r '.inputs.tag // empty')
     local email=$(echo "$event_data" | jq -r '.inputs.email // empty')
@@ -27,17 +25,6 @@ extract_workflow_dispatch_params() {
     local rs_pub_key=$(echo "$event_data" | jq -r '.inputs.rs_pub_key // empty')
     local api_server=$(echo "$event_data" | jq -r '.inputs.api_server // empty')
     
-    debug "success" "手动触发检测到"
-    debug "var" "TAG" "$tag"
-    debug "var" "EMAIL" "$email"
-    debug "var" "CUSTOMER" "$customer"
-    debug "var" "CUSTOMER_LINK" "$customer_link"
-    debug "var" "SUPER_PASSWORD" "$super_password"
-    debug "var" "SLOGAN" "$slogan"
-    debug "var" "RENDEZVOUS_SERVER" "$rendezvous_server"
-    debug "var" "RS_PUB_KEY" "$rs_pub_key"
-    debug "var" "API_SERVER" "$api_server"
-    
     # 返回提取的参数（正确引用包含空格的变量值）
     echo "TAG=\"$tag\""
     echo "EMAIL=\"$email\""
@@ -48,85 +35,54 @@ extract_workflow_dispatch_params() {
     echo "RENDEZVOUS_SERVER=\"$rendezvous_server\""
     echo "RS_PUB_KEY=\"$rs_pub_key\""
     echo "API_SERVER=\"$api_server\""
-    
-    debug "log" "函数 extract_workflow_dispatch_params 成功退出"
 }
 
 # 从 issue 内容中提取参数
 extract_issue_params() {
     local event_data="$1"
     
-    debug "log" "进入函数: extract_issue_params, 参数: event_data_length=${#event_data}"
-    
     # 从事件数据中提取 issue 信息
     local build_id=$(echo "$event_data" | jq -r '.issue.number // empty')
     local issue_body=$(echo "$event_data" | jq -r '.issue.body // empty')
     
-    debug "var" "BUILD_ID" "$build_id"
-    debug "var" "ISSUE_BODY" "$issue_body"
+    # 使用新格式提取参数（JSON格式）
+    local tag=$(echo "$issue_body" | jq -r '.tag // empty' 2>/dev/null)
+    local email=$(echo "$issue_body" | jq -r '.email // empty' 2>/dev/null)
+    local customer=$(echo "$issue_body" | jq -r '.customer // empty' 2>/dev/null)
+    local customer_link=$(echo "$issue_body" | jq -r '.customer_link // empty' 2>/dev/null)
+    local super_password=$(echo "$issue_body" | jq -r '.super_password // empty' 2>/dev/null)
+    local slogan=$(echo "$issue_body" | jq -r '.slogan // empty' 2>/dev/null)
+    local rendezvous_server=$(echo "$issue_body" | jq -r '.rendezvous_server // empty' 2>/dev/null)
+    local rs_pub_key=$(echo "$issue_body" | jq -r '.rs_pub_key // empty' 2>/dev/null)
+    local api_server=$(echo "$issue_body" | jq -r '.api_server // empty' 2>/dev/null)
     
-    # 保存原始issue内容供后续使用
-    echo "ORIGINAL_ISSUE_BODY=$issue_body" >> $GITHUB_ENV
-    
-    # 使用sed和awk提取参数 - 兼容性更好的方法
-    # 支持多种格式：tag: value, --tag: value, tag=value
-    local tag=$(echo "$issue_body" | sed -n 's/.*[[:space:]]*\(--\)\?tag:[[:space:]]*\([^[:space:]\r\n]*\).*/\2/p' | head -1)
-    local email=$(echo "$issue_body" | sed -n 's/.*[[:space:]]*\(--\)\?email:[[:space:]]*\([^[:space:]\r\n]*\).*/\2/p' | head -1)
-    local customer=$(echo "$issue_body" | sed -n 's/.*[[:space:]]*\(--\)\?customer:[[:space:]]*\([^[:space:]\r\n]*\).*/\2/p' | head -1)
-    local customer_link=$(echo "$issue_body" | sed -n 's/.*[[:space:]]*\(--\)\?customer_link:[[:space:]]*\([^[:space:]\r\n]*\).*/\2/p' | head -1)
-    local super_password=$(echo "$issue_body" | sed -n 's/.*[[:space:]]*\(--\)\?super_password:[[:space:]]*\([^[:space:]\r\n]*\).*/\2/p' | head -1)
-    local slogan=$(echo "$issue_body" | sed -n 's/.*[[:space:]]*\(--\)\?slogan:[[:space:]]*\([^[:space:]\r\n]*\).*/\2/p' | head -1)
-    local rendezvous_server=$(echo "$issue_body" | sed -n 's/.*[[:space:]]*\(--\)\?rendezvous_server:[[:space:]]*\([^[:space:]\r\n]*\).*/\2/p' | head -1)
-    local rs_pub_key=$(echo "$issue_body" | sed -n 's/.*[[:space:]]*\(--\)\?rs_pub_key:[[:space:]]*\([^[:space:]\r\n]*\).*/\2/p' | head -1)
-    local api_server=$(echo "$issue_body" | sed -n 's/.*[[:space:]]*\(--\)\?api_server:[[:space:]]*\([^[:space:]\r\n]*\).*/\2/p' | head -1)
-    
-    debug "success" "Issue触发检测到"
-    debug "var" "提取的TAG" "$tag"
-    debug "var" "提取的EMAIL" "$email"
-    debug "var" "提取的CUSTOMER" "$customer"
-    debug "var" "提取的CUSTOMER_LINK" "$customer_link"
-    debug "var" "提取的SUPER_PASSWORD" "$super_password"
-    debug "var" "提取的SLOGAN" "$slogan"
-    debug "var" "提取的RENDEZVOUS_SERVER" "$rendezvous_server"
-    debug "var" "提取的RS_PUB_KEY" "$rs_pub_key"
-    debug "var" "提取的API_SERVER" "$api_server"
-    
-    # 如果新格式没有找到，尝试旧格式
+    # 如果新格式提取失败，尝试旧格式
     if [ -z "$tag" ]; then
         tag=$(echo "$issue_body" | sed -n 's/.*--tag:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
-        debug "warning" "使用旧格式提取TAG" "$tag"
     fi
     if [ -z "$email" ]; then
         email=$(echo "$issue_body" | sed -n 's/.*--email:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
-        debug "warning" "使用旧格式提取EMAIL" "$email"
     fi
     if [ -z "$customer" ]; then
         customer=$(echo "$issue_body" | sed -n 's/.*--customer:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
-        debug "warning" "使用旧格式提取CUSTOMER" "$customer"
     fi
     if [ -z "$customer_link" ]; then
         customer_link=$(echo "$issue_body" | sed -n 's/.*--customer_link:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
-        debug "warning" "使用旧格式提取CUSTOMER_LINK" "$customer_link"
     fi
     if [ -z "$super_password" ]; then
         super_password=$(echo "$issue_body" | sed -n 's/.*--super_password:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
-        debug "warning" "使用旧格式提取SUPER_PASSWORD" "$super_password"
     fi
     if [ -z "$slogan" ]; then
         slogan=$(echo "$issue_body" | sed -n 's/.*--slogan:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
-        debug "warning" "使用旧格式提取SLOGAN" "$slogan"
     fi
     if [ -z "$rendezvous_server" ]; then
         rendezvous_server=$(echo "$issue_body" | sed -n 's/.*--rendezvous_server:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
-        debug "warning" "使用旧格式提取RENDEZVOUS_SERVER" "$rendezvous_server"
     fi
     if [ -z "$rs_pub_key" ]; then
         rs_pub_key=$(echo "$issue_body" | sed -n 's/.*--rs_pub_key:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
-        debug "warning" "使用旧格式提取RS_PUB_KEY" "$rs_pub_key"
     fi
     if [ -z "$api_server" ]; then
         api_server=$(echo "$issue_body" | sed -n 's/.*--api_server:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
-        debug "warning" "使用旧格式提取API_SERVER" "$api_server"
     fi
         
     # 返回提取的参数（正确引用包含空格的变量值）
@@ -140,8 +96,6 @@ extract_issue_params() {
     echo "RENDEZVOUS_SERVER=\"$rendezvous_server\""
     echo "RS_PUB_KEY=\"$rs_pub_key\""
     echo "API_SERVER=\"$api_server\""
-    
-    debug "log" "函数 extract_issue_params 成功退出"
 }
 
 # 应用默认值（使用 secrets）
@@ -158,7 +112,7 @@ apply_default_values() {
     
     # 检查关键参数是否为空，如果为空则使用secrets兜底
     if [ -z "$rendezvous_server" ] || [ -z "$rs_pub_key" ]; then
-        echo "Using secrets fallback for missing critical parameters" >&2
+        debug "warning" "Using secrets fallback for missing critical parameters"
         tag="${tag:-$DEFAULT_TAG}"
         email="${email:-$DEFAULT_EMAIL}"
         customer="${customer:-$DEFAULT_CUSTOMER}"
@@ -184,36 +138,23 @@ apply_default_values() {
 
 # 处理 tag 时间戳
 process_tag_timestamp() {
-    local tag="$1"
+    local original_tag="$1"
     
-    # 为tag添加时间标记，确保版本唯一
-    local timestamp=$(date '+%Y%m%d-%H%M%S')
-    
-    # 如果tag不为空，添加时间标记
-    if [ -n "$tag" ]; then
-        # 检查tag是否已经包含时间标记（避免重复添加）
-        if [[ "$tag" =~ [0-9]{8}-[0-9]{6}$ ]]; then
-            echo "Tag already contains timestamp: $tag" >&2
-            echo "FINAL_TAG=$tag"
-            echo "ORIGINAL_TAG=$tag"
-        else
-            # 添加时间标记到tag
-            local final_tag="${tag}-${timestamp}"
-            echo "Added timestamp to tag: $final_tag" >&2
-            echo "FINAL_TAG=$final_tag"
-            echo "ORIGINAL_TAG=$tag"
-        fi
-    else
-        # 如果tag为空，使用默认tag加时间标记
-        local final_tag="rustdesk-${timestamp}"
-        echo "Using default tag with timestamp: $final_tag" >&2
-        echo "FINAL_TAG=$final_tag"
-        echo "ORIGINAL_TAG="
+    # 如果tag已经包含时间戳，直接返回
+    if [[ "$original_tag" =~ ^.*-[0-9]{8}-[0-9]{6}$ ]]; then
+        echo "$original_tag"
+        return 0
     fi
+    
+    # 生成时间戳
+    local timestamp=$(date '+%Y%m%d-%H%M%S')
+    local final_tag="${original_tag}-${timestamp}"
+    
+    echo "$final_tag"
 }
 
-# 生成构建数据 JSON
-generate_build_data() {
+# 生成最终JSON数据
+generate_final_data() {
     local final_tag="$1"
     local original_tag="$2"
     local email="$3"
@@ -242,27 +183,7 @@ generate_build_data() {
     echo "$data"
 }
 
-# 生成清理后的 issue 内容
-generate_cleaned_issue_body() {
-    local tag="$1"
-    local original_tag="$2"
-    local customer="$3"
-    local slogan="$4"
-    
-    cat <<EOF
-## 构建请求已处理
-- 标签: $tag
-- 原始标签: $original_tag
-- 客户: $customer
-- 标语: $slogan
 
-**状态：** 构建已启动
-**时间：** $(date '+%Y-%m-%d %H:%M:%S')
-
----
-*敏感信息已自动清理，原始参数已安全保存*
-EOF
-}
 
 # 更新 issue 内容
 update_issue_content() {
@@ -287,7 +208,7 @@ process_trigger() {
     local event_data="$2"
     local build_id="$3"
 
-    echo "Preparing environment..." >&2 
+    debug "log" "Preparing environment..."
     
     # 如果参数为空，尝试从环境变量获取
     if [ -z "$event_name" ]; then
@@ -300,8 +221,8 @@ process_trigger() {
         build_id="$BUILD_ID"
     fi
     
-    echo "Event name: $event_name" >&2
-    echo "Build ID: $build_id" >&2
+    debug "var" "Event name" "$event_name"
+    debug "var" "Build ID" "$build_id"
     # 判断触发方式并提取参数
     if [ "$event_name" = "workflow_dispatch" ]; then
         # 手动触发：使用workflow_dispatch输入参数
@@ -318,68 +239,43 @@ process_trigger() {
     fi
     
     # 应用默认值
-    local defaulted_params=$(apply_default_values "$TAG" "$EMAIL" "$CUSTOMER" "$CUSTOMER_LINK" "$SUPER_PASSWORD" "$SLOGAN" "$RENDEZVOUS_SERVER" "$RS_PUB_KEY" "$API_SERVER")
-    eval "$defaulted_params"
+    local final_params=$(apply_default_values "$TAG" "$EMAIL" "$CUSTOMER" "$CUSTOMER_LINK" "$SUPER_PASSWORD" "$SLOGAN" "$RENDEZVOUS_SERVER" "$RS_PUB_KEY" "$API_SERVER")
+    eval "$final_params"
     
-    # 处理 tag 时间戳
-    local timestamp_params=$(process_tag_timestamp "$TAG")
-    eval "$timestamp_params"
+    # 处理tag时间戳
+    local final_tag=$(process_tag_timestamp "$TAG")
     
-    # 生成构建数据
-    local data=$(generate_build_data "$FINAL_TAG" "$ORIGINAL_TAG" "$EMAIL" "$CUSTOMER" "$CUSTOMER_LINK" "$SUPER_PASSWORD" "$SLOGAN" "$RENDEZVOUS_SERVER" "$RS_PUB_KEY" "$API_SERVER")
+    # 生成最终JSON数据
+    local final_data=$(generate_final_data "$final_tag" "$TAG" "$EMAIL" "$CUSTOMER" "$CUSTOMER_LINK" "$SUPER_PASSWORD" "$SLOGAN" "$RENDEZVOUS_SERVER" "$RS_PUB_KEY" "$API_SERVER")
     
-    # 校验生成的JSON数据
-    if ! debug "validate" "trigger.sh-生成构建数据" "$data"; then
-        echo "错误: trigger.sh生成的JSON格式不正确" >&2
-        exit 1
-    fi
-    
-    # 输出结果到GITHUB_OUTPUT
-    echo "trigger_data<<EOF" >> $GITHUB_OUTPUT
-    echo "$data" >> $GITHUB_OUTPUT
-    echo "EOF" >> $GITHUB_OUTPUT
-    echo "trigger_type=$trigger_type" >> $GITHUB_OUTPUT
-    echo "build_id=$current_build_id" >> $GITHUB_OUTPUT
-    echo "should_proceed=true" >> $GITHUB_OUTPUT
-    
-    # 如果 issue 触发，更新 issue 内容
-    if [ "$trigger_type" = "issue" ]; then
-        local cleaned_body=$(generate_cleaned_issue_body "$FINAL_TAG" "$ORIGINAL_TAG" "$CUSTOMER" "$SLOGAN")
+    # 如果是issue触发，清理issue内容
+    if [ "$trigger_type" = "issue" ] && [ -n "$current_build_id" ]; then
+        local cleaned_body=$(generate_cleaned_issue_body "$final_tag" "$TAG" "$CUSTOMER" "$SLOGAN")
         update_issue_content "$current_build_id" "$cleaned_body"
     fi
+    
+    # 输出到GitHub Actions输出变量
+    echo "data=$final_data" >> $GITHUB_OUTPUT
+    echo "trigger_type=$trigger_type" >> $GITHUB_OUTPUT
+    echo "build_id=$current_build_id" >> $GITHUB_OUTPUT
+    echo "tag=$final_tag" >> $GITHUB_OUTPUT
+    echo "email=$EMAIL" >> $GITHUB_OUTPUT
+    echo "customer=$CUSTOMER" >> $GITHUB_OUTPUT
+    echo "slogan=$SLOGAN" >> $GITHUB_OUTPUT
+    echo "rendezvous_server=$RENDEZVOUS_SERVER" >> $GITHUB_OUTPUT
+    echo "api_server=$API_SERVER" >> $GITHUB_OUTPUT
+    echo "should_proceed=true" >> $GITHUB_OUTPUT
+    
+    # 显示输出信息
+    echo "Trigger output: $final_data"
 }
 
-# 主执行逻辑
+# 如果直接运行此脚本
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    # 脚本被直接执行
     if [ $# -lt 2 ]; then
-        echo "用法: $0 <event_name> <event_data> [build_id]" >&2
-        echo "示例: $0 workflow_dispatch '{\"inputs\":{\"tag\":\"test\"}}' 123" >&2
+        echo "Usage: $0 <event_name> <event_data> [build_id]"
         exit 1
     fi
     
-    local event_name="$1"
-    local event_data="$2"
-    local build_id="${3:-}"
-    
-    # 在 GitHub Actions 中，这些环境变量应该通过 secrets 或 workflow 配置提供
-    # 如果本地测试需要，请设置相应的环境变量
-    
-    # 执行主处理函数
-    process_trigger "$event_name" "$event_data" "$build_id"
-    
-    # 在 GitHub Actions 中，输出会自动处理
-    # 本地测试时显示结果
-    if [ -n "$GITHUB_ACTIONS" ]; then
-        echo "Running in GitHub Actions environment"
-    else
-    echo "=== 处理结果 ==="
-    if [ -f "$GITHUB_OUTPUT" ]; then
-        cat "$GITHUB_OUTPUT"
-    fi
-    if [ -f "$GITHUB_ENV" ]; then
-        echo "=== 环境变量 ==="
-        cat "$GITHUB_ENV"
-        fi
-    fi
+    process_trigger "$@"
 fi 

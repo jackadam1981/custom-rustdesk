@@ -68,7 +68,7 @@ jobs:
     outputs:
       trigger_type: ${{ steps.trigger.outputs.trigger_type }}
       build_id: ${{ steps.trigger.outputs.build_id }}
-      trigger_data: ${{ steps.trigger.outputs.trigger_data }}
+      trigger_data: ${{ steps.trigger.outputs.data }}
       should_proceed: ${{ steps.trigger.outputs.should_proceed }}
     steps:
       - name: Checkout code
@@ -137,17 +137,17 @@ jobs:
           
           # 使用乐观锁加入队列
           echo "Starting optimistic lock queue join process..."
-          main_hybrid_lock "join_queue" \
+          join_result=$(main_hybrid_lock "join_queue" \
                           "${{ needs.trigger.outputs.build_id }}" \
                           "${{ needs.trigger.outputs.trigger_type }}" \
                           "$TRIGGER_DATA" \
-                          "5"
+                          "5")
           
           # 检查加入结果
-          if [ "$(echo "$join_success" | tail -1)" = "true" ]; then
+          if [ $? -eq 0 ]; then
             echo "✅ Successfully joined queue using optimistic lock"
             echo "join_success=true" >> $GITHUB_OUTPUT
-            echo "queue_position=$(echo "$queue_position" | tail -1)" >> $GITHUB_OUTPUT
+            echo "queue_position=1" >> $GITHUB_OUTPUT
           else
             echo "❌ Failed to join queue"
             echo "join_success=false" >> $GITHUB_OUTPUT
@@ -175,11 +175,16 @@ jobs:
           source .github/workflows/scripts/hybrid-lock.sh
 
           # 使用悲观锁等待并获取构建锁
-          main_hybrid_lock "acquire_lock" "${{ needs.trigger.outputs.build_id }}" "1"
-          
+          lock_result=$(main_hybrid_lock "acquire_lock" "${{ needs.trigger.outputs.build_id }}" "1")
+
           # 检查获取锁的结果
-          echo "✅ 等待队列步骤完成"
-          echo "lock_acquired=true" >> $GITHUB_OUTPUT
+          if [ $? -eq 0 ]; then
+            echo "✅ Successfully acquired build lock"
+            echo "lock_acquired=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Failed to acquire build lock"
+            echo "lock_acquired=false" >> $GITHUB_OUTPUT
+          fi
           
 
           

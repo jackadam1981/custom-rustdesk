@@ -10,7 +10,7 @@ extract_build_data() {
     local input="$1"
     # 校验输入JSON格式
     if ! debug "validate" "build.sh-输入数据校验" "$input"; then
-        echo "错误: build.sh输入的JSON格式不正确" >&2
+        debug "error" "build.sh输入的JSON格式不正确"
         return 1
     fi
     echo "CURRENT_DATA=$input" >> $GITHUB_ENV
@@ -29,13 +29,13 @@ process_build_data() {
     local current_data="$1"
     # 校验输入JSON格式
     if ! debug "validate" "build.sh-处理前数据校验" "$current_data"; then
-        echo "错误: build.sh处理前JSON格式不正确" >&2
+        debug "error" "build.sh处理前JSON格式不正确"
         return 1
     fi
     local processed=$(echo "$current_data" | jq -c --arg build_time "$(date -Iseconds)" '. + {built: true, build_time: $build_time}')
     # 校验处理后JSON格式
     if ! debug "validate" "build.sh-处理后数据校验" "$processed"; then
-        echo "错误: build.sh处理后JSON格式不正确" >&2
+        debug "error" "build.sh处理后JSON格式不正确"
         return 1
     fi
     echo "CURRENT_DATA=$processed" >> $GITHUB_ENV
@@ -47,7 +47,7 @@ output_build_data() {
     local output_data="$1"
     # 校验输出JSON格式
     if ! debug "validate" "build.sh-输出数据校验" "$output_data"; then
-        echo "错误: build.sh输出的JSON格式不正确" >&2
+        debug "error" "build.sh输出的JSON格式不正确"
         return 1
     fi
     echo "data=$output_data" >> $GITHUB_OUTPUT
@@ -64,26 +64,28 @@ process_build() {
     local input_data="$1"
     local pause_seconds="${2:-0}"
     
-    debug "log" "进入函数: process_build, 参数: input_data_length=${#input_data}, pause_seconds=$pause_seconds"
-    debug "success" "开始构建过程"
-    
     # 提取数据
     local extracted_data=$(extract_build_data "$input_data")
-    debug "json" "提取的构建数据" "$extracted_data"
     
     # 如果需要暂停测试
     if [ "$pause_seconds" -gt 0 ]; then
-        debug "warning" "暂停构建进行队列测试" "${pause_seconds}秒"
+        echo "Pausing build for queue test: ${pause_seconds} seconds"
         pause_for_test "$pause_seconds"
     fi
     
     # 处理构建数据
     local processed_data=$(process_build_data "$extracted_data")
-    debug "json" "处理后的构建数据" "$processed_data"
     
     # 输出构建数据
     output_build_data "$processed_data"
+}
+
+# 如果直接运行此脚本
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    if [ $# -lt 1 ]; then
+        echo "Usage: $0 <input_data> [pause_seconds]"
+        exit 1
+    fi
     
-    debug "success" "构建过程成功完成"
-    debug "log" "函数 process_build 成功退出"
-} 
+    process_build "$@"
+fi 

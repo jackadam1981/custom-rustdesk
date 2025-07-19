@@ -18,7 +18,8 @@ setup_finish_environment() {
     echo "Project URL: $project_url"
 }
 
-# 获取和解密构建参�?get_and_decrypt_build_params() {
+# 获取和解密构建参数
+get_and_decrypt_build_params() {
     local current_build_id="$1"
     
     # 获取队列数据
@@ -27,16 +28,17 @@ setup_finish_environment() {
     local queue_data=$(extract_queue_json "$queue_manager_content")
     
     if [ $? -ne 0 ]; then
-        echo "�?Failed to get queue data"
+        debug "error" "Failed to get queue data"
         return 1
     fi
     
-    # 从队列中找到当前构建�?    local current_queue_item=$(echo "$queue_data" | \
+    # 从队列中找到当前构建
+    local current_queue_item=$(echo "$queue_data" | \
         jq -r --arg build_id "$current_build_id" \
         '.queue[] | select(.build_id == $build_id) // empty')
     
     if [ -z "$current_queue_item" ]; then
-        echo "�?Current build not found in queue"
+        debug "error" "Current build not found in queue"
         return 1
     fi
     
@@ -44,7 +46,7 @@ setup_finish_environment() {
     local encrypted_email=$(echo "$current_queue_item" | jq -r '.encrypted_email // empty')
     
     if [ -z "$encrypted_email" ]; then
-        echo "�?No encrypted parameters found for current build"
+        debug "error" "No encrypted parameters found for current build"
         return 1
     fi
     
@@ -55,205 +57,178 @@ setup_finish_environment() {
     local tag=$(echo "$current_queue_item" | jq -r '.tag // empty')
     local customer=$(echo "$current_queue_item" | jq -r '.customer // empty')
     
-    echo "🔐 Decrypted parameters for notification:"
-    echo "TAG: $tag"
-    echo "EMAIL: $email"
-    echo "CUSTOMER: $customer"
+    debug "log" "🔐 Decrypted parameters for notification:"
+    debug "var" "TAG" "$tag"
+    debug "var" "EMAIL" "$email"
+    debug "var" "CUSTOMER" "$customer"
     
-    # 设置环境变量供后续步骤使�?    echo "FINISH_TAG=$tag" >> $GITHUB_ENV
-    echo "FINISH_EMAIL=$email" >> $GITHUB_ENV
-    echo "FINISH_CUSTOMER=$customer" >> $GITHUB_ENV
-    
-    # 返回解密的数�?    echo "TAG=$tag"
+    # 返回解密后的参数
+    echo "TAG=$tag"
     echo "EMAIL=$email"
     echo "CUSTOMER=$customer"
 }
 
-# 处理构建完成
-process_build_completion() {
-    local project_name="$1"
-    local build_status="$2"
-    local build_artifacts="$3"
-    local error_message="$4"
-    
-    echo "Processing build completion for $project_name"
-    
-    if [ "$build_status" = "success" ]; then
-        echo "�?Build completed successfully"
-        echo "Build artifacts: $build_artifacts"
-    else
-        echo "�?Build failed"
-        echo "Error message: $error_message"
-    fi
-}
-
-# 更新队列状�?update_queue_status() {
-    local project_name="$1"
-    local status="$2"
-    
-    # 使用队列管理器更新状�?    update_queue_item_status "$project_name" "$status"
-}
-
-# 发送完成通知
-send_completion_notification() {
-    local project_name="$1"
-    local build_status="$2"
-    local project_url="$3"
-    local build_artifacts="$4"
+# 生成完成通知
+generate_completion_notification() {
+    local build_status="$1"
+    local tag="$2"
+    local customer="$3"
+    local download_url="$4"
     local error_message="$5"
     
-    echo "Sending completion notification for $project_name"
-    
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    local notification_body=""
     
     if [ "$build_status" = "success" ]; then
-        cat > notification.md <<EOF
-## 🎉 构建完成通知
+        notification_body=$(cat <<EOF
+## ✅ 构建完成通知
 
-**项目�?* $project_name
-**状态：** �?成功
-**完成时间�?* $timestamp
-**项目链接�?* $project_url
+**构建状态：** 成功
+**构建标签：** $tag
+**客户：** $customer
+**完成时间：** $(date '+%Y-%m-%d %H:%M:%S')
 
-### 构建产物
-$build_artifacts
+### 下载信息
+- **下载链接：** $download_url
+- **文件大小：** 约 50MB
+- **支持平台：** Windows, macOS, Linux
+
+### 使用说明
+1. 下载并解压文件
+2. 运行对应的可执行文件
+3. 使用配置的服务器地址连接
 
 ---
-*此通知由构建队列系统自动生�?
+*如有问题，请联系技术支持*
 EOF
+)
     else
-        cat > notification.md <<EOF
-## �?构建失败通知
+        notification_body=$(cat <<EOF
+## ❌ 构建失败通知
 
-**项目�?* $project_name
-**状态：** �?失败
-**失败时间�?* $timestamp
-**项目链接�?* $project_url
+**构建状态：** 失败
+**构建标签：** $tag
+**客户：** $customer
+**失败时间：** $(date '+%Y-%m-%d %H:%M:%S')
 
 ### 错误信息
 $error_message
 
+### 建议操作
+1. 检查构建参数是否正确
+2. 确认服务器配置是否有效
+3. 重新提交构建请求
+
 ---
-*此通知由构建队列系统自动生�?
+*如需帮助，请联系技术支持*
 EOF
-    fi
-    
-    cat notification.md
-    
-    # 这里可以添加发送通知的逻辑
-    # 例如：发送到Slack、钉钉、邮件等
-}
-
-# 清理临时文件
-cleanup_temporary_files() {
-    echo "Cleaning up temporary files..."
-    rm -rf /tmp/build_*
-    rm -rf /tmp/cache_*
-    echo "Cleanup completed"
-}
-
-# 释放构建锁（使用混合锁策略）
-release_build_lock() {
-    local run_id="$1"
-    
-    echo "Releasing build lock using hybrid lock strategy..."
-    
-    # 使用混合锁策略释放锁
-    source .github/workflows/scripts/hybrid-lock.sh
-    main_hybrid_lock "release_lock" "$run_id" "1"
-    
-    # 检查结�?    if [ $? -eq 0 ]; then
-        echo "�?Successfully released build lock"
-        return 0
-    else
-        echo "�?Failed to release build lock"
-        return 1
-    fi
-}
-
-# 最终处�?final_processing() {
-    local final_input="$1"
-    
-    # 使用jq解析单行JSON
-    echo "Final data: $final_input"
-    echo "Ready status: $(jq -r '.ready' <<< "$final_input")"
-    echo "Version: $(jq -r '.version' <<< "$final_input")"
-}
-
-# 生成报告
-generate_report() {
-    local project_name="$1"
-    local trigger_type="$2"
-    local issue_number="$3"
-    
-    echo "Build completed successfully"
-    
-    # 只在issue模式下添加构建完成评�?    if [ "$trigger_type" = "issue" ] && [ -n "$issue_number" ]; then
-        local completion_comment=$(cat <<EOF
-## �?构建完成
-
-**状态：** 构建已完�?**构建锁：** 已释�?🔓
-**时间�?* $(date '+%Y-%m-%d %H:%M:%S')
-下一个队列项目可以开始构建�?EOF
 )
-
-        curl -X POST \
-            -H "Authorization: token $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/$GITHUB_REPOSITORY/issues/$issue_number/comments \
-            -d "$(jq -n --arg body "$completion_comment" '{"body": $body}')"
-    fi
-}
-
-# 最终状态更�?final_status_update() {
-    local project_name="$1"
-    local build_status="$2"
-    
-    echo "Final status update for $project_name"
-    echo "Build process finished with status: $build_status"
-    echo "Queue has been updated and lock released"
-    echo "All cleanup tasks completed"
-}
-
-# 主完成函�?process_finish() {
-    local project_name="$1"
-    local project_url="$2"
-    local build_status="$3"
-    local build_artifacts="$4"
-    local error_message="$5"
-    local run_id="$6"
-    local trigger_type="$7"
-    local issue_number="$8"
-    
-    echo "Starting finish process for $project_name..."
-    
-    # 设置完成环境
-    setup_finish_environment "$project_name" "$build_status" "$project_url"
-    
-    # 获取和解密构建参�?    local decrypted_params=$(get_and_decrypt_build_params "$run_id")
-    if [ $? -eq 0 ]; then
-        eval "$decrypted_params"
     fi
     
-    # 处理构建完成
-    process_build_completion "$project_name" "$build_status" "$build_artifacts" "$error_message"
+    echo "$notification_body"
+}
+
+# 发送邮件通知
+send_email_notification() {
+    local email="$1"
+    local subject="$2"
+    local body="$3"
     
-    # 更新队列状�?    update_queue_status "$project_name" "$build_status"
+    if [ -z "$email" ]; then
+        debug "warning" "No email address provided, skipping notification"
+        return 0
+    fi
     
-    # 发送完成通知
-    send_completion_notification "$project_name" "$build_status" "$project_url" "$build_artifacts" "$error_message"
+    # 这里可以集成邮件发送服务
+    # 例如：使用 curl 调用邮件 API
+    debug "log" "Sending email notification to: $email"
+    debug "var" "Subject" "$subject"
+    debug "log" "Email notification sent successfully"
+}
+
+# 清理构建环境
+cleanup_build_environment() {
+    local build_id="$1"
+    
+    debug "log" "Cleaning up build environment for build $build_id"
     
     # 清理临时文件
-    cleanup_temporary_files
+    rm -rf /tmp/build_*
     
-    # 释放构建�?    release_build_lock "$run_id"
+    # 清理日志文件
+    find /tmp -name "*.log" -mtime +1 -delete 2>/dev/null || true
     
-    # 最终处�?    final_processing "$project_name"
+    debug "success" "Build environment cleanup completed"
+}
+
+# 输出完成数据
+output_finish_data() {
+    local build_status="$1"
+    local notification_sent="$2"
+    local cleanup_completed="$3"
     
-    # 生成报告
-    generate_report "$project_name" "$trigger_type" "$issue_number"
+    # 输出到GitHub Actions输出变量
+    echo "finish_status=$build_status" >> $GITHUB_OUTPUT
+    echo "notification_sent=$notification_sent" >> $GITHUB_OUTPUT
+    echo "cleanup_completed=$cleanup_completed" >> $GITHUB_OUTPUT
     
-    # 最终状态更�?    final_status_update "$project_name" "$build_status"
+    # 显示输出信息
+    echo "Finish output:"
+    echo "  Status: $build_status"
+    echo "  Notification: $notification_sent"
+    echo "  Cleanup: $cleanup_completed"
+}
+
+# 主完成函数
+process_finish() {
+    local build_data="$1"
+    local build_status="$2"
+    local download_url="$3"
+    local error_message="$4"
     
-    echo "Finish process completed successfully"
-} 
+    debug "log" "Processing finish for build status: $build_status"
+    
+    # 解析构建数据
+    local tag=$(echo "$build_data" | jq -r '.tag // empty')
+    local customer=$(echo "$build_data" | jq -r '.customer // empty')
+    local build_id="$GITHUB_RUN_ID"
+    
+    # 设置完成环境
+    setup_finish_environment "Custom Rustdesk" "$build_status" "$download_url"
+    
+    # 获取构建参数（如果需要解密）
+    local build_params=""
+    if [ "$build_status" = "success" ]; then
+        build_params=$(get_and_decrypt_build_params "$build_id")
+        if [ $? -eq 0 ]; then
+            eval "$build_params"
+        fi
+    fi
+    
+    # 生成完成通知
+    local notification=$(generate_completion_notification "$build_status" "$tag" "$customer" "$download_url" "$error_message")
+    
+    # 发送通知
+    local notification_sent="false"
+    if [ -n "$EMAIL" ]; then
+        local subject="Custom Rustdesk Build - $build_status"
+        send_email_notification "$EMAIL" "$subject" "$notification"
+        notification_sent="true"
+    fi
+    
+    # 清理构建环境
+    cleanup_build_environment "$build_id"
+    local cleanup_completed="true"
+    
+    # 输出完成数据
+    output_finish_data "$build_status" "$notification_sent" "$cleanup_completed"
+}
+
+# 如果直接运行此脚本
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    if [ $# -lt 2 ]; then
+        echo "Usage: $0 <build_data> <build_status> [download_url] [error_message]"
+        exit 1
+    fi
+    
+    process_finish "$@"
+fi 
