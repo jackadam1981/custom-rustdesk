@@ -42,7 +42,7 @@ queue_manager_load_data() {
     if [ $? -ne 0 ]; then
         debug "error" "Failed to get queue manager content"
         return 1
-    fi
+      fi
     
     debug "log" "Queue manager content received"
     
@@ -57,7 +57,34 @@ queue_manager_get_content() {
     # 在测试环境中，如果GITHUB_TOKEN是测试token，返回模拟数据
     if [ "$GITHUB_TOKEN" = "test_token" ] || [ "$GITHUB_REPOSITORY" = "test/repo" ]; then
         debug "log" "Using test environment, returning mock data"
-        echo '{"body": "## 构建队列管理\n\n**最后更新时间：** 2025-07-20 10:00:00\n\n### 当前状态\n- **构建锁状态：** 空闲 🔓\n- **当前构建：** 无\n- **锁持有者：** 无\n- **版本：** 1\n\n### 混合锁状态\n- **乐观锁（排队）：** 空闲 🔓\n- **悲观锁（构建）：** 空闲 🔓\n\n### 构建队列\n- **当前数量：** 0/5\n- **Issue触发：** 0/3\n- **手动触发：** 0/5\n\n```json\n{\"queue\":[],\"run_id\":null,\"version\":1}\n```\n\n---"}'
+        
+        # 如果全局队列数据已经存在，使用它；否则使用默认数据
+        if [ -n "$_QUEUE_MANAGER_QUEUE_DATA" ]; then
+            local current_time=$(date '+%Y-%m-%d %H:%M:%S')
+            local queue_length=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq '.queue | length // 0')
+            local version=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq -r '.version // 1')
+            local run_id=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq -r '.run_id // "null"')
+            
+            # 生成模拟响应
+            local lock_status="空闲 🔓"
+            local current_build="无"
+            local lock_holder="无"
+            if [ "$run_id" != "null" ]; then
+                lock_status="占用 🔒"
+                current_build="$run_id"
+                lock_holder="$run_id"
+            fi
+            
+            # 使用printf避免控制字符问题
+            local mock_body=$(printf '## 构建队列管理\n\n**最后更新时间：** %s\n\n### 当前状态\n- **构建锁状态：** %s\n- **当前构建：** %s\n- **锁持有者：** %s\n- **版本：** %s\n\n### 混合锁状态\n- **乐观锁（排队）：** 空闲 🔓\n- **悲观锁（构建）：** %s\n\n### 构建队列\n- **当前数量：** %s/5\n- **Issue触发：** 0/3\n- **手动触发：** %s/5\n\n```json\n%s\n```\n\n---' \
+                "$current_time" "$lock_status" "$current_build" "$lock_holder" "$version" "$lock_status" "$queue_length" "$queue_length" "$_QUEUE_MANAGER_QUEUE_DATA")
+            
+            # 使用jq正确转义JSON
+            local mock_response=$(jq -n --arg body "$mock_body" '{"body": $body}')
+            echo "$mock_response"
+        else
+            echo '{"body": "## 构建队列管理\n\n**最后更新时间：** 2025-07-20 10:00:00\n\n### 当前状态\n- **构建锁状态：** 空闲 🔓\n- **当前构建：** 无\n- **锁持有者：** 无\n- **版本：** 1\n\n### 混合锁状态\n- **乐观锁（排队）：** 空闲 🔓\n- **悲观锁（构建）：** 空闲 🔓\n\n### 构建队列\n- **当前数量：** 0/5\n- **Issue触发：** 0/3\n- **手动触发：** 0/5\n\n```json\n{\"queue\":[],\"run_id\":null,\"version\":1}\n```\n\n---"}'
+        fi
         return 0
     fi
     
@@ -76,8 +103,8 @@ queue_manager_get_content() {
 
 # 私有方法：提取JSON数据
 queue_manager_extract_json() {
-    local issue_content="$1"
-    
+  local issue_content="$1"
+  
     debug "log" "Extracting JSON from issue content..."
     
     # 首先尝试从issue body中提取
@@ -122,8 +149,8 @@ queue_manager_extract_json() {
     fi
     
     debug "log" "Extracted JSON data: $json_data"
-    
-    # 验证JSON格式并返回
+  
+  # 验证JSON格式并返回
     if [ -n "$json_data" ]; then
         debug "log" "JSON data is not empty, attempting to parse..."
         if echo "$json_data" | jq . > /dev/null 2>&1; then
@@ -136,17 +163,25 @@ queue_manager_extract_json() {
         fi
     else
         debug "error" "JSON data is empty, using default"
-        echo '{"queue":[],"run_id":null,"version":1}'
-    fi
+    echo '{"queue":[],"run_id":null,"version":1}'
+  fi
 }
 
 # 私有方法：更新队列管理issue
 queue_manager_update_issue() {
     local body="$1"
     
-    # 在测试环境中，模拟成功更新
+    # 在测试环境中，模拟成功更新并更新全局队列数据
     if [ "$GITHUB_TOKEN" = "test_token" ] || [ "$GITHUB_REPOSITORY" = "test/repo" ]; then
         debug "log" "Test environment: simulating successful issue update"
+        
+        # 从body中提取JSON数据并更新全局变量
+        local extracted_json=$(echo "$body" | sed -n '/```json/,/```/p' | sed '1d;$d' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        if [ -n "$extracted_json" ] && echo "$extracted_json" | jq . > /dev/null 2>&1; then
+            _QUEUE_MANAGER_QUEUE_DATA="$extracted_json"
+            debug "log" "Test environment: updated global queue data to: $_QUEUE_MANAGER_QUEUE_DATA"
+        fi
+        
         echo '{"id": 1, "number": 1, "title": "Queue Manager", "body": "Updated"}'
         return 0
     fi
@@ -155,10 +190,10 @@ queue_manager_update_issue() {
     local json_payload=$(jq -n --arg body "$body" '{"body": $body}')
     
     # 使用GitHub API更新issue
-    local response=$(curl -s -X PATCH \
-        -H "Authorization: token $GITHUB_TOKEN" \
-        -H "Accept: application/vnd.github.v3+json" \
-        -H "Content-Type: application/json" \
+  local response=$(curl -s -X PATCH \
+    -H "Authorization: token $GITHUB_TOKEN" \
+    -H "Accept: application/vnd.github.v3+json" \
+    -H "Content-Type: application/json" \
         https://api.github.com/repos/$GITHUB_REPOSITORY/issues/$_QUEUE_MANAGER_ISSUE_NUMBER \
         -d "$json_payload")
     
@@ -167,8 +202,8 @@ queue_manager_update_issue() {
         return 0
     else
         debug "error" "Failed to update queue issue"
-        return 1
-    fi
+    return 1
+  fi
 }
 
 # 私有方法：使用混合锁模板更新队列管理issue
@@ -234,19 +269,21 @@ queue_manager_show_details() {
 }
 
 # 公共方法：乐观锁加入队列
-queue_manager_join_queue() {
-    local build_id="$1"
-    local trigger_type="$2"
-    local trigger_data="$3"
-    local queue_limit="${4:-5}"
+queue_manager_join() {
+    local issue_number="$1"
+    local build_id="$2"
+    local trigger_type="$3"
+    local trigger_data="$4"
+    local queue_limit="${5:-5}"
     
     echo "=== 乐观锁加入队列 ==="
     debug "log" "Starting optimistic lock queue join process..."
     
-    # 清理队列和检查当前锁
-    queue_manager_auto_clean_expired
-    queue_manager_check_and_clean_current_lock
-    queue_manager_clean_completed
+    # 初始化队列管理器
+    queue_manager_init "$issue_number"
+    
+    # 执行必要的清理操作
+    queue_manager_pre_join_cleanup
     
     # 尝试加入队列（最多重试3次）
     for attempt in $(seq 1 $_QUEUE_MANAGER_MAX_RETRIES); do
@@ -255,11 +292,8 @@ queue_manager_join_queue() {
         # 刷新队列数据
         queue_manager_refresh
         
-        # 验证队列数据完整性
-        debug "log" "Validating queue data structure..."
-        debug "var" "Queue data to validate" "$_QUEUE_MANAGER_QUEUE_DATA"
-        
-        local queue_data_valid=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq -e '.queue != null and .version != null' 2>/dev/null && echo "true" || echo "false")
+        # 验证队列数据结构
+        local queue_data_valid=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq -e '.queue != null and .version != null' >/dev/null 2>&1 && echo "true" || echo "false")
         debug "var" "Validation result" "$queue_data_valid"
         
         if [ "$queue_data_valid" != "true" ]; then
@@ -329,7 +363,7 @@ queue_manager_join_queue() {
         debug "log" "Updated queue data: $new_queue_data"
         
         # 更新队列（乐观锁）
-        local update_response=$(queue_manager_update_with_lock "$new_queue_data" "占用 🔒" "空闲 🔓")
+        local update_response=$(queue_manager_update_with_lock "$new_queue_data" "空闲 🔓" "空闲 🔓")
         
         if [ $? -eq 0 ]; then
             debug "success" "Successfully joined queue at position $((current_queue_length + 1))"
@@ -347,6 +381,82 @@ queue_manager_join_queue() {
     return 1
 }
 
+# 私有方法：加入队列前的清理操作（队列锁控制）
+queue_manager_pre_join_cleanup() {
+    debug "log" "Performing pre-join cleanup operations (queue lock controlled)..."
+    
+    # 1. 自动清理过期队列项（超过6小时的）
+    debug "log" "Step 1: Cleaning expired queue items (older than $_QUEUE_MANAGER_QUEUE_TIMEOUT_HOURS hours)"
+    queue_manager_auto_clean_expired
+    
+    # 2. 注意：不清理构建锁持有者，构建锁由构建锁自己管理
+    debug "log" "Step 2: Skipping build lock holder cleanup (build lock manages itself)"
+    
+    # 3. 注意：不清理队列中的其他构建，避免影响队列顺序
+    debug "log" "Step 3: Skipping queue build cleanup to avoid affecting queue order"
+}
+
+# 私有方法：锁获取前的清理操作（构建锁控制）
+queue_manager_pre_acquire_cleanup() {
+    debug "log" "Performing pre-acquire cleanup operations (build lock controlled)..."
+    
+    # 只检查当前持有构建锁的构建状态，不清理队列中的其他构建
+    local current_run_id=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq -r '.run_id // null')
+    
+    if [ "$current_run_id" != "null" ]; then
+        debug "log" "Current build lock holder: $current_run_id"
+        
+        # 检查当前持有构建锁的构建状态
+        local run_status="unknown"
+        if [ -n "$GITHUB_TOKEN" ] && [ "$GITHUB_TOKEN" != "test_token" ] && [ "$GITHUB_REPOSITORY" != "test/repo" ]; then
+            local run_response=$(curl -s \
+                -H "Authorization: token $GITHUB_TOKEN" \
+                -H "Accept: application/vnd.github.v3+json" \
+                "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$current_run_id")
+            
+            # 检查HTTP状态码
+            local http_status=$(echo "$run_response" | jq -r '.status // empty')
+            
+            # 如果返回的是HTTP状态码（如401），说明构建不存在或无法访问
+            if [[ "$http_status" =~ ^[0-9]+$ ]] && [ "$http_status" -ge 400 ]; then
+                run_status="not_found"
+            elif echo "$run_response" | jq -e '.message' | grep -q "Not Found"; then
+                run_status="not_found"
+            else
+                run_status=$(echo "$run_response" | jq -r '.status // "unknown"')
+            fi
+        else
+            # 在测试环境中，假设构建正在运行
+            debug "log" "Test environment: assuming build is running"
+            run_status="in_progress"
+        fi
+        
+        debug "log" "Current build lock holder status: $run_status"
+        
+        # 只有当构建确实已完成时才进行清理
+        case "$run_status" in
+            "completed"|"cancelled"|"failure"|"skipped"|"not_found")
+                debug "log" "Current build lock holder needs cleanup (status: $run_status), performing cleanup"
+                queue_manager_check_and_clean_current_lock
+                ;;
+            "queued"|"in_progress"|"waiting")
+                debug "log" "Current build lock holder is still running (status: $run_status), no cleanup needed"
+                ;;
+            "unknown")
+                debug "log" "Current build lock holder has unknown status: $run_status, but not cleaning to avoid removing waiting builds"
+                ;;
+            *)
+                debug "log" "Current build lock holder has unexpected status: $run_status, not cleaning to avoid removing waiting builds"
+                ;;
+        esac
+    else
+        debug "log" "No current build lock holder, no cleanup needed"
+    fi
+    
+    # 注意：不清理队列中的其他构建，避免影响队列顺序
+    debug "log" "Skipping queue build cleanup to avoid affecting queue order"
+}
+
 # 公共方法：悲观锁获取构建权限
 queue_manager_acquire_lock() {
     local build_id="$1"
@@ -358,10 +468,11 @@ queue_manager_acquire_lock() {
     local start_time=$(date +%s)
     
     while [ $(($(date +%s) - start_time)) -lt $_QUEUE_MANAGER_MAX_WAIT_TIME ]; do
-        # 刷新队列数据并清理
+        # 刷新队列数据
         queue_manager_refresh
-        queue_manager_check_and_clean_current_lock
-        queue_manager_clean_completed
+        
+        # 只在必要时进行清理
+        queue_manager_pre_acquire_cleanup
         
         # 检查是否已在队列中
         local in_queue=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq --arg build_id "$build_id" '.queue | map(select(.build_id == $build_id)) | length')
@@ -381,7 +492,7 @@ queue_manager_acquire_lock() {
                 .version = (.version // 0) + 1
             ')
             
-            local update_response=$(queue_manager_update_with_lock "$updated_queue_data" "占用 🔒" "占用 🔒" "$build_id" "$build_id")
+            local update_response=$(queue_manager_update_with_lock "$updated_queue_data" "空闲 🔓" "占用 🔒" "$build_id" "$build_id")
             
             if [ $? -eq 0 ]; then
                 debug "success" "Successfully acquired build lock"
@@ -390,8 +501,8 @@ queue_manager_acquire_lock() {
             fi
         elif [ "$current_run_id" = "$build_id" ]; then
             debug "log" "Already have build lock"
-    return 0
-  else
+            return 0
+        else
             debug "log" "Waiting for turn... Position: $((queue_position + 1)), Current: $current_run_id"
         fi
         
@@ -419,7 +530,7 @@ queue_manager_release_lock() {
         .version = (.version // 0) + 1
     ')
     
-    local update_response=$(queue_manager_update_with_lock "$updated_queue_data" "占用 🔒" "空闲 🔓")
+    local update_response=$(queue_manager_update_with_lock "$updated_queue_data" "空闲 🔓" "空闲 🔓")
     
     if [ $? -eq 0 ]; then
         debug "success" "Successfully released build lock"
@@ -452,33 +563,46 @@ queue_manager_clean_completed() {
         
         # 获取工作流运行状态
         local run_status="unknown"
-        if [ -n "$GITHUB_TOKEN" ]; then
+        if [ -n "$GITHUB_TOKEN" ] && [ "$GITHUB_TOKEN" != "test_token" ] && [ "$GITHUB_REPOSITORY" != "test/repo" ]; then
             local run_response=$(curl -s \
                 -H "Authorization: token $GITHUB_TOKEN" \
                 -H "Accept: application/vnd.github.v3+json" \
                 "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$build_id")
             
-            if echo "$run_response" | jq -e '.message' | grep -q "Not Found"; then
+            # 检查HTTP状态码
+            local http_status=$(echo "$run_response" | jq -r '.status // empty')
+            
+            # 如果返回的是HTTP状态码（如401），说明构建不存在或无法访问
+            if [[ "$http_status" =~ ^[0-9]+$ ]] && [ "$http_status" -ge 400 ]; then
+                run_status="not_found"
+            elif echo "$run_response" | jq -e '.message' | grep -q "Not Found"; then
                 run_status="not_found"
             else
                 run_status=$(echo "$run_response" | jq -r '.status // "unknown"')
             fi
+        else
+            # 在测试环境中，假设构建正在运行
+            debug "log" "Test environment: assuming build is running"
+            run_status="in_progress"
         fi
         
         debug "log" "Build $build_id status: $run_status"
         
         # 检查是否需要清理
         case "$run_status" in
-            "completed"|"cancelled"|"failure"|"skipped"|"not_found"|"unknown")
+            "completed"|"cancelled"|"failure"|"skipped")
                 debug "log" "Build $build_id needs cleanup (status: $run_status)"
                 builds_to_remove+=("$build_id")
                 ;;
             "queued"|"in_progress"|"waiting")
                 debug "log" "Build $build_id is still running (status: $run_status)"
                 ;;
+            "not_found"|"unknown")
+                # 对于不存在的构建，在加入队列时不清理，让它们有机会被处理
+                debug "log" "Build $build_id has status: $run_status, but not cleaning during join to allow processing"
+                ;;
             *)
-                debug "log" "Build $build_id has unknown status: $run_status"
-                builds_to_remove+=("$build_id")
+                debug "log" "Build $build_id has unknown status: $run_status, not cleaning to avoid removing waiting builds"
                 ;;
         esac
     done
@@ -526,25 +650,35 @@ queue_manager_check_and_clean_current_lock() {
     
     # 检查当前持有锁的构建状态
     local run_status="unknown"
-    if [ -n "$GITHUB_TOKEN" ]; then
-        local run_response=$(curl -s \
+    if [ -n "$GITHUB_TOKEN" ] && [ "$GITHUB_TOKEN" != "test_token" ] && [ "$GITHUB_REPOSITORY" != "test/repo" ]; then
+            local run_response=$(curl -s \
                 -H "Authorization: token $GITHUB_TOKEN" \
                 -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$current_run_id")
         
-        if echo "$run_response" | jq -e '.message' | grep -q "Not Found"; then
+        # 检查HTTP状态码
+        local http_status=$(echo "$run_response" | jq -r '.status // empty')
+        
+        # 如果返回的是HTTP状态码（如401），说明构建不存在或无法访问
+        if [[ "$http_status" =~ ^[0-9]+$ ]] && [ "$http_status" -ge 400 ]; then
+            run_status="not_found"
+        elif echo "$run_response" | jq -e '.message' | grep -q "Not Found"; then
             run_status="not_found"
         else
             run_status=$(echo "$run_response" | jq -r '.status // "unknown"')
         fi
+    else
+        # 在测试环境中，假设构建正在运行
+        debug "log" "Test environment: assuming build is running"
+        run_status="in_progress"
     fi
     
     debug "log" "Current lock holder status: $run_status"
     
     # 检查是否需要释放锁
     case "$run_status" in
-        "completed"|"cancelled"|"failure"|"skipped"|"not_found"|"unknown")
-            debug "log" "Current lock holder needs cleanup (status: $run_status), releasing pessimistic build lock"
+        "completed"|"cancelled"|"failure"|"skipped"|"not_found")
+            debug "log" "Current build lock holder needs cleanup (status: $run_status), releasing pessimistic build lock"
             debug "log" "Current queue data before lock release: $_QUEUE_MANAGER_QUEUE_DATA"
             
             # 释放悲观构建锁（保留乐观队列锁数据）
@@ -555,8 +689,8 @@ queue_manager_check_and_clean_current_lock() {
             
             debug "log" "Updated queue data after pessimistic lock release: $updated_queue_data"
             
-            # 更新时保持乐观锁状态为"占用"，因为队列操作仍在进行
-            local update_response=$(queue_manager_update_with_lock "$updated_queue_data" "占用 🔒" "空闲 🔓")
+            # 更新时释放乐观锁和悲观锁
+            local update_response=$(queue_manager_update_with_lock "$updated_queue_data" "空闲 🔓" "空闲 🔓")
             
             if [ $? -eq 0 ]; then
                 debug "success" "Successfully released lock for completed build"
@@ -568,7 +702,7 @@ queue_manager_check_and_clean_current_lock() {
             fi
             ;;
         "queued"|"in_progress"|"waiting")
-            debug "log" "Current lock holder is still running (status: $run_status)"
+            debug "log" "Current build lock holder is still running (status: $run_status)"
             
             # 检查构建锁超时
             local build_timeout_seconds=$((_QUEUE_MANAGER_LOCK_TIMEOUT_HOURS * 3600))
@@ -594,8 +728,8 @@ queue_manager_check_and_clean_current_lock() {
                     
                     debug "log" "Updated queue data after timeout lock release: $updated_queue_data"
                     
-                    # 更新时保持乐观锁状态为"占用"，因为队列操作仍在进行
-                    local update_response=$(queue_manager_update_with_lock "$updated_queue_data" "占用 🔒" "空闲 🔓")
+                    # 更新时释放乐观锁和悲观锁
+                    local update_response=$(queue_manager_update_with_lock "$updated_queue_data" "空闲 🔓" "空闲 🔓")
                     
                     if [ $? -eq 0 ]; then
                         debug "success" "Successfully released timeout build lock"
@@ -612,29 +746,13 @@ queue_manager_check_and_clean_current_lock() {
             
             return 0
             ;;
+        "unknown")
+            debug "log" "Current build lock holder has unknown status: $run_status, not cleaning to avoid removing waiting builds"
+            return 0
+            ;;
         *)
-            debug "log" "Current lock holder has unknown status: $run_status, releasing pessimistic build lock"
-            debug "log" "Current queue data before lock release: $_QUEUE_MANAGER_QUEUE_DATA"
-            
-            # 释放悲观构建锁（保留乐观队列锁数据）
-            local updated_queue_data=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq '
-                .run_id = null |
-                .version = (.version // 0) + 1
-            ')
-            
-            debug "log" "Updated queue data after pessimistic lock release: $updated_queue_data"
-            
-            # 更新时保持乐观锁状态为"占用"，因为队列操作仍在进行
-            local update_response=$(queue_manager_update_with_lock "$updated_queue_data" "占用 🔒" "空闲 🔓")
-            
-            if [ $? -eq 0 ]; then
-                debug "success" "Successfully released lock for unknown status build"
-                _QUEUE_MANAGER_QUEUE_DATA="$updated_queue_data"
-                return 0
-            else
-                debug "error" "Failed to release lock for unknown status build"
-                return 1
-            fi
+            debug "log" "Current build lock holder has unexpected status: $run_status, not cleaning to avoid removing waiting builds"
+            return 0
             ;;
     esac
 }
@@ -725,7 +843,7 @@ queue_manager_reset() {
         debug "error" "Queue reset failed"
         return 1
     fi
-}
+} 
 
 # 公共方法：刷新队列数据
 queue_manager_refresh() {
@@ -753,32 +871,6 @@ queue_manager_is_empty() {
     fi
 }
 
-# 通用函数：重试机制
-retry_operation() {
-    local max_retries="${1:-5}"
-    local retry_delay="${2:-10}"
-    local operation_name="$3"
-    shift 3
-    
-    for attempt in $(seq 1 $max_retries); do
-        debug "log" "Attempt $attempt of $max_retries for $operation_name..."
-        
-        if "$@"; then
-            debug "success" "$operation_name successful on attempt $attempt"
-            return 0
-        else
-            debug "error" "$operation_name failed on attempt $attempt"
-            if [ "$attempt" -lt "$max_retries" ]; then
-                debug "log" "Retrying in $retry_delay seconds..."
-                sleep $retry_delay
-            else
-                debug "error" "Max retries reached for $operation_name"
-                return 1
-            fi
-        fi
-    done
-}
-
 # 主队列管理函数 - 供工作流调用
 queue_manager() {
     local operation="$1"
@@ -797,7 +889,7 @@ queue_manager() {
             local trigger_type="$2"
             local trigger_data="$3"
             local queue_limit="${4:-5}"
-            queue_manager_join_queue "$build_id" "$trigger_type" "$trigger_data" "$queue_limit"
+            queue_manager_join "$issue_number" "$build_id" "$trigger_type" "$trigger_data" "$queue_limit"
             ;;
         "acquire")
             local build_id="$1"
