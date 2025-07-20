@@ -1,11 +1,12 @@
 #!/bin/bash
-# 收尾脚本
-# 这个文件处理构建完成和收尾逻辑
+# 完成处理脚本
+# 这个文件处理构建完成后的清理和通知
 
 # 加载依赖脚本
 source .github/workflows/scripts/debug-utils.sh
+source .github/workflows/scripts/encryption-utils.sh
 source .github/workflows/scripts/queue-manager.sh
-source .github/workflows/scripts/issue-manager.sh
+source .github/workflows/scripts/issue-templates.sh
 
 # 设置完成环境
 setup_finish_environment() {
@@ -66,65 +67,6 @@ get_and_decrypt_build_params() {
     echo "CUSTOMER=$customer"
 }
 
-# 生成完成通知
-generate_completion_notification() {
-    local build_status="$1"
-    local tag="$2"
-    local customer="$3"
-    local download_url="$4"
-    local error_message="$5"
-    
-    local notification_body=""
-    
-    if [ "$build_status" = "success" ]; then
-        notification_body=$(cat <<EOF
-## ✅ 构建完成通知
-
-**构建状态：** 成功
-**构建标签：** $tag
-**客户：** $customer
-**完成时间：** $(date '+%Y-%m-%d %H:%M:%S')
-
-### 下载信息
-- **下载链接：** $download_url
-- **文件大小：** 约 50MB
-- **支持平台：** Windows, macOS, Linux
-
-### 使用说明
-1. 下载并解压文件
-2. 运行对应的可执行文件
-3. 使用配置的服务器地址连接
-
----
-*如有问题，请联系技术支持*
-EOF
-)
-    else
-        notification_body=$(cat <<EOF
-## ❌ 构建失败通知
-
-**构建状态：** 失败
-**构建标签：** $tag
-**客户：** $customer
-**失败时间：** $(date '+%Y-%m-%d %H:%M:%S')
-
-### 错误信息
-$error_message
-
-### 建议操作
-1. 检查构建参数是否正确
-2. 确认服务器配置是否有效
-3. 重新提交构建请求
-
----
-*如需帮助，请联系技术支持*
-EOF
-)
-    fi
-    
-    echo "$notification_body"
-}
-
 # 发送邮件通知
 send_email_notification() {
     local email="$1"
@@ -181,77 +123,57 @@ output_finish_data() {
     echo "  Lock Released: $lock_released"
 }
 
-# 主完成函数
-process_finish() {
-    local build_data="$1"
-    local build_status="$2"
-    local download_url="$3"
-    local error_message="$4"
+# 主完成管理函数 - 供工作流调用
+finish_manager() {
+    local operation="$1"
+    local build_data="$2"
+    local build_status="$3"
+    local download_url="$4"
+    local error_message="$5"
     
-    debug "log" "Processing finish for build status: $build_status"
-    
-    # 解析构建数据
-    local tag=$(echo "$build_data" | jq -r '.tag // empty')
-    local customer=$(echo "$build_data" | jq -r '.customer // empty')
-    local build_id="$GITHUB_RUN_ID"
-    
-    # 设置完成环境
-    setup_finish_environment "Custom Rustdesk" "$build_status" "$download_url"
-    
-    # 获取构建参数（如果需要解密）
-    local build_params=""
-    if [ "$build_status" = "success" ]; then
-        build_params=$(get_and_decrypt_build_params "$build_id")
-    if [ $? -eq 0 ]; then
-            eval "$build_params"
-        fi
-    fi
-    
-    # 生成完成通知
-    local notification=$(generate_completion_notification "$build_status" "$tag" "$customer" "$download_url" "$error_message")
-    
-    # 发送通知
-    local notification_sent="false"
-    if [ -n "$EMAIL" ]; then
-        local subject="Custom Rustdesk Build - $build_status"
-        send_email_notification "$EMAIL" "$subject" "$notification"
-        notification_sent="true"
-    fi
-    
-    # 清理构建环境
-    cleanup_build_environment "$build_id"
-    local cleanup_completed="true"
-    
-    # 🔓 释放构建锁（重要：无论构建成功还是失败都必须释放锁）
-    debug "log" "Releasing build lock for build $build_id (status: $build_status)"
-    local lock_released="false"
-    
-    # 确保有必要的环境变量
-    if [ -z "$GITHUB_TOKEN" ]; then
-        debug "warning" "GITHUB_TOKEN not set, skipping lock release"
-        lock_released="skipped"
-    else
-        # 无论构建状态如何，都必须释放构建锁
-        debug "log" "Attempting to release pessimistic build lock..."
-        if queue_manager "release" "${QUEUE_ISSUE_NUMBER:-1}" "$build_id"; then
-            debug "success" "Successfully released pessimistic build lock"
-            lock_released="true"
-        else
-            debug "error" "Failed to release pessimistic build lock"
-            lock_released="false"
-        fi
-    fi
-    
-    # 输出完成数据
-    output_finish_data "$build_status" "$notification_sent" "$cleanup_completed" "$lock_released"
-}
-
-# 如果直接运行此脚本
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    if [ $# -lt 2 ]; then
-        echo "Usage: $0 <build_data> <build_status> [download_url] [error_message]"
-        exit 1
-    fi
-    
-    process_finish "$@"
-fi 
+    case "$operation" in
+        "setup-environment")
+            setup_finish_environment "Custom Rustdesk" "$build_status" "$download_url"
+            ;;
+        "get-params")
+            local build_id="$6"
+            get_and_decrypt_build_params "$build_id"
+            ;;
+        "send-notification")
+            local email="$6"
+            local subject="$7"
+            local body="$8"
+            send_email_notification "$email" "$subject" "$body"
+            ;;
+        "cleanup")
+            local build_id="$6"
+            cleanup_build_environment "$build_id"
+            ;;
+        "release-lock")
+            local build_id="$6"
+            # 释放构建锁逻辑
+            if [ -z "$GITHUB_TOKEN" ]; then
+              debug "warning" "GITHUB_TOKEN not set, skipping lock release"
+              echo "skipped"
+            else
+              if queue_manager "release" "${QUEUE_ISSUE_NUMBER:-1}" "$build_id"; then
+                debug "success" "Successfully released pessimistic build lock"
+                echo "true"
+              else
+                debug "error" "Failed to release pessimistic build lock"
+                echo "false"
+              fi
+            fi
+            ;;
+        "output-data")
+            local notification_sent="$6"
+            local cleanup_completed="$7"
+            local lock_released="$8"
+            output_finish_data "$build_status" "$notification_sent" "$cleanup_completed" "$lock_released"
+            ;;
+        *)
+            debug "error" "Unknown operation: $operation"
+            return 1
+            ;;
+    esac
+} 

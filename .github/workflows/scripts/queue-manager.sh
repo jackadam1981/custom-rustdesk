@@ -938,18 +938,3 @@ queue_manager() {
             ;;
     esac
 } 
-
-# 如果直接运行此脚本
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    if [ $# -lt 1 ]; then
-        echo "Usage: $0 <operation> [issue_number] [additional_params...]"
-        echo "Operations: status, join, acquire, release, clean, cleanup, check-lock, reset, auto-clean, refresh, length, empty, data"
-        exit 1
-    fi
-    
-    operation="$1"
-    issue_number="${2:-1}"
-    shift 2
-    
-    queue_manager "$operation" "$issue_number" "$@"
-fi 

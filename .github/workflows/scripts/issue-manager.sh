@@ -818,23 +818,4 @@ lock_issue() {
 
 unlock_issue() {
     issue_manager "unlock" "$1" "" ""
-}
-
-# 如果直接运行此脚本
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    if [ $# -lt 1 ]; then
-        echo "Usage: $0 <operation> [issue_number] [current_user] [additional_params...]"
-        echo "Operations: get-content, update-content, add-comment, get-comments, exists, close, reopen,"
-        echo "           add-labels, remove-label, set-labels, get-labels, assign, unassign, create,"
-        echo "           search, get-repository-issues, check-admin, get-property, batch-operation,"
-        echo "           get-stats, lock, unlock"
-        exit 1
-    fi
-    
-    operation="$1"
-    issue_number="${2:-}"
-    current_user="${3:-}"
-    shift 3
-    
-    issue_manager "$operation" "$issue_number" "$current_user" "$@"
-fi
+} 

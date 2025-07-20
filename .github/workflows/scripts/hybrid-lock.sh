@@ -270,23 +270,3 @@ hybrid_lock_tool() {
             ;;
     esac
 }
-
-# 如果直接运行此脚本（测试模式）
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    if [ $# -lt 1 ]; then
-        echo "Usage: $0 <operation> [parameters...]"
-        echo "Operations:"
-        echo "  optimistic_acquire <resource_id> <version> <data> <update_function>"
-        echo "  pessimistic_acquire <resource_id> <lock_key> <acquire_function> <release_function>"
-        echo "  pessimistic_release <resource_id> <lock_key> <release_function>"
-        echo "  check_timeout <lock_data> [timeout_hours]"
-        echo "  check_version <expected_version> <actual_version>"
-        echo "  validate_state <lock_data> <expected_state>"
-        echo "  generate_info <lock_holder> <lock_type> <resource_id>"
-        echo "  get_stats <lock_data>"
-        echo "  cleanup <lock_data> [timeout_hours]"
-        exit 1
-    fi
-    
-    hybrid_lock_tool "$@"
-fi 

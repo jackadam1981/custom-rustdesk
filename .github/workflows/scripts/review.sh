@@ -420,89 +420,9 @@ review_manager() {
         "get-server-params")
             review_manager_get_server_params
             ;;
-        "process")
-            # 完整的审核处理流程
-            review_manager_process_review
-            ;;
         *)
             debug "error" "Unknown operation: $operation"
             return 1
             ;;
     esac
-}
-
-# 完整的审核处理流程
-review_manager_process_review() {
-    debug "log" "Starting complete review process"
-    
-    # 设置审核数据
-    echo "TRIGGER_OUTPUT=$_REVIEW_MANAGER_TRIGGER_DATA" >> $GITHUB_ENV
-    echo "BUILD_REJECTED=false" >> $GITHUB_ENV
-    echo "BUILD_TIMEOUT=false" >> $GITHUB_ENV
-    
-    # 并行检查所有参数
-    local validation_result=$(review_manager_validate_parameters)
-    local validation_exit_code=$?
-    
-    debug "log" "Validation result: '$validation_result'"
-    debug "log" "Validation exit code: $validation_exit_code"
-    
-    # 如果有问题，处理拒绝逻辑
-    if [ $validation_exit_code -eq 0 ] && [ "$validation_result" != "[]" ]; then
-        export BUILD_REJECTED="true"
-        review_manager_handle_rejection "$validation_result"
-        review_manager_output_data "true" "false"
-        return 0
-    else
-        export BUILD_REJECTED="false"
-    fi
-    
-    # 确定是否需要审核    
-    local need_review=$(review_manager_need_review)
-    debug "log" "Need review: $need_review"
-    
-    # 如果需要审核，处理审核流程
-    if [ "$need_review" = "true" ]; then
-        review_manager_handle_review
-        local review_result=$?
-        
-        if [ $review_result -eq 1 ]; then
-            # 被拒绝
-            return 1
-        elif [ $review_result -eq 2 ]; then
-            # 超时
-            echo "BUILD_TIMEOUT=true" >> $GITHUB_ENV
-            review_manager_output_rejected_data
-            return 1
-        fi
-    fi
-    
-    # 输出数据
-    review_manager_output_data "$BUILD_REJECTED" "$BUILD_TIMEOUT"
-}
-
-# 兼容性函数 - 保持向后兼容
-process_review() {
-    local trigger_output="$1"
-    local actor="$2"
-    local repo_owner="$3"
-    
-    debug "log" "Calling review_manager process with legacy function"
-    review_manager "process" "$trigger_output" "$actor" "$repo_owner"
-}
-
-# 如果直接运行此脚本
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    if [ $# -lt 3 ]; then
-        echo "Usage: $0 <operation> <trigger_data> <actor> [repo_owner] [additional_params...]"
-        echo "Operations: validate, need-review, handle-review, handle-rejection, output-data, output-rejected, get-trigger-data, get-server-params, process"
-        exit 1
-    fi
-    
-    operation="$1"
-    trigger_data="$2"
-    actor="$3"
-    repo_owner="${4:-}"
-    
-    review_manager "$operation" "$trigger_data" "$actor" "$repo_owner"
-fi
+} 

@@ -80,12 +80,48 @@ jobs:
         id: trigger
         run: |
           source .github/workflows/scripts/trigger.sh
+          
           # 使用环境变量传递事件数据，避免命令行参数过长
           export EVENT_NAME="${{ github.event_name }}"
           export EVENT_DATA='${{ toJSON(github.event) }}'
           export BUILD_ID="${{ github.run_id }}"
-          # 传递完整事件数据，脚本内部根据事件类型处理
-          process_trigger "$EVENT_NAME" "$EVENT_DATA" "$BUILD_ID"
+          
+          # 初始化trigger管理器
+          trigger_manager_init "$EVENT_NAME" "$EVENT_DATA" "$BUILD_ID"
+          
+          # 根据事件类型提取参数和设置触发类型
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            # 提取workflow_dispatch参数
+            params=$(trigger_manager "extract-workflow-dispatch" "" "$EVENT_DATA" "")
+            eval "$params"
+            _TRIGGER_MANAGER_TRIGGER_TYPE="workflow_dispatch"
+            current_build_id="$BUILD_ID"
+          else
+            # 提取issue参数
+            params=$(trigger_manager "extract-issue" "" "$EVENT_DATA" "")
+            eval "$params"
+            _TRIGGER_MANAGER_TRIGGER_TYPE="issue"
+            current_build_id="$BUILD_ID"
+          fi
+          
+          # 应用默认值
+          final_params=$(trigger_manager "apply-defaults" "" "" "" "$TAG" "$EMAIL" "$CUSTOMER" "$CUSTOMER_LINK" "$SUPER_PASSWORD" "$SLOGAN" "$RENDEZVOUS_SERVER" "$RS_PUB_KEY" "$API_SERVER")
+          eval "$final_params"
+          
+          # 处理tag时间戳
+          final_tag=$(trigger_manager "process-tag" "" "$TAG" "")
+          
+          # 生成最终JSON数据
+          final_data=$(trigger_manager "generate-data" "" "" "" "$final_tag" "$TAG" "$EMAIL" "$CUSTOMER" "$CUSTOMER_LINK" "$SUPER_PASSWORD" "$SLOGAN" "$RENDEZVOUS_SERVER" "$RS_PUB_KEY" "$API_SERVER")
+          
+          # 如果是issue触发，需要清理issue内容
+          if [ "$_TRIGGER_MANAGER_TRIGGER_TYPE" = "issue" ] && [ -n "$current_build_id" ]; then
+            cleaned_body=$(trigger_manager "clean-issue" "" "$final_tag" "$TAG" "$CUSTOMER" "$SLOGAN")
+            trigger_manager "update-issue" "" "$current_build_id" "$cleaned_body" ""
+          fi
+          
+          # 输出到GitHub Actions
+          trigger_manager "output-to-github" "" "$final_data" "$_TRIGGER_MANAGER_TRIGGER_TYPE" "$current_build_id" "$final_tag" "$EMAIL" "$CUSTOMER" "$SLOGAN" "$RENDEZVOUS_SERVER" "$API_SERVER"
           
 
           
@@ -101,8 +137,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         
-
-        
       - name: Review and validate
         id: review
         env:
@@ -111,7 +145,51 @@ jobs:
           GITHUB_EVENT_PATH: ${{ github.event_path }}
         run: |
           source .github/workflows/scripts/review.sh
-          review_manager "process" "$TRIGGER_DATA" "${{ github.actor }}" "${{ github.repository_owner }}"
+          
+          # 设置审核数据
+          echo "TRIGGER_OUTPUT=$TRIGGER_DATA" >> $GITHUB_ENV
+          echo "BUILD_REJECTED=false" >> $GITHUB_ENV
+          echo "BUILD_TIMEOUT=false" >> $GITHUB_ENV
+          
+          # 并行检查所有参数
+          validation_result=$(review_manager "validate" "$TRIGGER_DATA" "${{ github.actor }}" "${{ github.repository_owner }}")
+          validation_exit_code=$?
+          
+          echo "Validation result: '$validation_result'"
+          echo "Validation exit code: $validation_exit_code"
+          
+          # 如果有问题，处理拒绝逻辑
+          if [ $validation_exit_code -eq 0 ] && [ "$validation_result" != "[]" ]; then
+            export BUILD_REJECTED="true"
+            review_manager "handle-rejection" "$TRIGGER_DATA" "${{ github.actor }}" "${{ github.repository_owner }}" "$validation_result"
+            review_manager "output-data" "$TRIGGER_DATA" "${{ github.actor }}" "${{ github.repository_owner }}" "true" "false"
+            exit 0
+          else
+            export BUILD_REJECTED="false"
+          fi
+          
+          # 确定是否需要审核    
+          need_review=$(review_manager "need-review" "$TRIGGER_DATA" "${{ github.actor }}" "${{ github.repository_owner }}")
+          echo "Need review: $need_review"
+          
+          # 如果需要审核，处理审核流程
+          if [ "$need_review" = "true" ]; then
+            review_result=$(review_manager "handle-review" "$TRIGGER_DATA" "${{ github.actor }}" "${{ github.repository_owner }}")
+            review_exit_code=$?
+            
+            if [ $review_exit_code -eq 1 ]; then
+              # 被拒绝
+              exit 1
+            elif [ $review_exit_code -eq 2 ]; then
+              # 超时
+              echo "BUILD_TIMEOUT=true" >> $GITHUB_ENV
+              review_manager "output-rejected" "$TRIGGER_DATA" "${{ github.actor }}" "${{ github.repository_owner }}"
+              exit 1
+            fi
+          fi
+          
+          # 输出数据
+          review_manager "output-data" "$TRIGGER_DATA" "${{ github.actor }}" "${{ github.repository_owner }}" "$BUILD_REJECTED" "$BUILD_TIMEOUT"
           
 
           
@@ -210,8 +288,23 @@ jobs:
           TRIGGER_DATA: ${{ needs.trigger.outputs.trigger_data }}
         run: |
           source .github/workflows/scripts/build.sh
-          process_build "$TRIGGER_DATA" "300"
           
+          # 提取数据
+          extracted_data=$(build_manager "extract-data" "$TRIGGER_DATA")
+          
+          # 如果需要暂停测试
+          if [ "300" -gt 0 ]; then
+            echo "Pausing build for queue test: 300 seconds"
+            build_manager "pause" "" "300"
+          fi
+          
+          # 处理构建数据
+          processed_data=$(build_manager "process-data" "$extracted_data")
+          
+          # 输出构建数据
+          build_manager "output-data" "$processed_data"
+          
+
           
   # 05-完成处理
   finish:
@@ -240,7 +333,41 @@ jobs:
             error_message="构建过程中发生错误"
           fi
           
-          # 调用完成处理脚本
-          process_finish "$TRIGGER_DATA" "$build_status" "$download_url" "$error_message" 
+          # 解析构建数据
+          tag=$(echo "$TRIGGER_DATA" | jq -r '.tag // empty')
+          customer=$(echo "$TRIGGER_DATA" | jq -r '.customer // empty')
+          build_id="$GITHUB_RUN_ID"
+          
+          # 设置完成环境
+          finish_manager "setup-environment" "$TRIGGER_DATA" "$build_status" "$download_url" "$error_message"
+          
+          # 获取构建参数（如果需要解密）
+          if [ "$build_status" = "success" ]; then
+            build_params=$(finish_manager "get-params" "$TRIGGER_DATA" "$build_status" "$download_url" "$error_message" "$build_id")
+            if [ $? -eq 0 ]; then
+              eval "$build_params"
+            fi
+          fi
+          
+          # 生成完成通知
+          notification=$(generate_completion_notification "$build_status" "$tag" "$customer" "$download_url" "$error_message")
+          
+          # 发送通知
+          notification_sent="false"
+          if [ -n "$EMAIL" ]; then
+            subject="Custom Rustdesk Build - $build_status"
+            finish_manager "send-notification" "$TRIGGER_DATA" "$build_status" "$download_url" "$error_message" "$EMAIL" "$subject" "$notification"
+            notification_sent="true"
+          fi
+          
+          # 清理构建环境
+          finish_manager "cleanup" "$TRIGGER_DATA" "$build_status" "$download_url" "$error_message" "$build_id"
+          cleanup_completed="true"
+          
+          # 释放构建锁
+          lock_released=$(finish_manager "release-lock" "$TRIGGER_DATA" "$build_status" "$download_url" "$error_message" "$build_id")
+          
+          # 输出完成数据
+          finish_manager "output-data" "$TRIGGER_DATA" "$build_status" "$download_url" "$error_message" "$notification_sent" "$cleanup_completed" "$lock_released" 
           
  

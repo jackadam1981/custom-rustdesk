@@ -65,33 +65,29 @@ output_build_data() {
     echo "Download URL: https://example.com/download/rustdesk-custom.zip"
 }
 
-# 主构建函数
-process_build() {
-    local input_data="$1"
-    local pause_seconds="${2:-0}"
+# 主构建管理函数 - 供工作流调用
+build_manager() {
+    local operation="$1"
+    local input_data="$2"
+    local pause_seconds="${3:-0}"
     
-    # 提取数据
-    local extracted_data=$(extract_build_data "$input_data")
-    
-    # 如果需要暂停测试
-    if [ "$pause_seconds" -gt 0 ]; then
-        echo "Pausing build for queue test: ${pause_seconds} seconds"
-        pause_for_test "$pause_seconds"
-    fi
-    
-    # 处理构建数据
-    local processed_data=$(process_build_data "$extracted_data")
-    
-    # 输出构建数据
-    output_build_data "$processed_data"
-}
-
-# 如果直接运行此脚本
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    if [ $# -lt 1 ]; then
-        echo "Usage: $0 <input_data> [pause_seconds]"
-        exit 1
-    fi
-    
-    process_build "$@"
-fi 
+    case "$operation" in
+        "extract-data")
+            extract_build_data "$input_data"
+            ;;
+        "process-data")
+            process_build_data "$input_data"
+            ;;
+        "output-data")
+            local output_data="$2"
+            output_build_data "$output_data"
+            ;;
+        "pause")
+            pause_for_test "$pause_seconds"
+            ;;
+        *)
+            debug "error" "Unknown operation: $operation"
+            return 1
+            ;;
+    esac
+} 

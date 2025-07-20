@@ -309,16 +309,16 @@ trigger_manager_output_to_github() {
     # 检查是否在GitHub Actions环境中
     if [ -n "$GITHUB_OUTPUT" ]; then
         echo "data=$final_data" >> $GITHUB_OUTPUT
-        echo "trigger_type=$trigger_type" >> $GITHUB_OUTPUT
-        echo "build_id=$current_build_id" >> $GITHUB_OUTPUT
+    echo "trigger_type=$trigger_type" >> $GITHUB_OUTPUT
+    echo "build_id=$current_build_id" >> $GITHUB_OUTPUT
         echo "tag=$final_tag" >> $GITHUB_OUTPUT
         echo "email=$email" >> $GITHUB_OUTPUT
         echo "customer=$customer" >> $GITHUB_OUTPUT
         echo "slogan=$slogan" >> $GITHUB_OUTPUT
         echo "rendezvous_server=$rendezvous_server" >> $GITHUB_OUTPUT
         echo "api_server=$api_server" >> $GITHUB_OUTPUT
-        echo "should_proceed=true" >> $GITHUB_OUTPUT
-        
+    echo "should_proceed=true" >> $GITHUB_OUTPUT
+    
         debug "success" "Output written to GitHub Actions"
     else
         debug "warning" "Not in GitHub Actions environment, skipping output"
@@ -326,83 +326,6 @@ trigger_manager_output_to_github() {
     
     # 显示输出信息
     echo "Trigger output: $final_data"
-}
-
-# 公共方法：处理 workflow_dispatch 触发
-trigger_manager_process_workflow_dispatch() {
-    local event_data="$1"
-    local build_id="$2"
-    
-    debug "log" "Processing workflow_dispatch trigger"
-    
-    # 提取参数
-    local params=$(trigger_manager_extract_workflow_dispatch_params "$event_data")
-    eval "$params"
-    
-    # 设置触发类型
-    _TRIGGER_MANAGER_TRIGGER_TYPE="workflow_dispatch"
-    local current_build_id="$build_id"
-    
-    debug "var" "Trigger type" "$_TRIGGER_MANAGER_TRIGGER_TYPE"
-    debug "var" "Current build ID" "$current_build_id"
-    
-    # 应用默认值
-    local final_params=$(trigger_manager_apply_default_values "$TAG" "$EMAIL" "$CUSTOMER" "$CUSTOMER_LINK" "$SUPER_PASSWORD" "$SLOGAN" "$RENDEZVOUS_SERVER" "$RS_PUB_KEY" "$API_SERVER")
-    eval "$final_params"
-    
-    # 处理tag时间戳
-    local final_tag=$(trigger_manager_process_tag_timestamp "$TAG")
-    
-    # 生成最终JSON数据
-    local final_data=$(trigger_manager_generate_final_data "$final_tag" "$TAG" "$EMAIL" "$CUSTOMER" "$CUSTOMER_LINK" "$SUPER_PASSWORD" "$SLOGAN" "$RENDEZVOUS_SERVER" "$RS_PUB_KEY" "$API_SERVER")
-    
-    # 输出到GitHub Actions
-    trigger_manager_output_to_github "$final_data" "$_TRIGGER_MANAGER_TRIGGER_TYPE" "$current_build_id" "$final_tag" "$EMAIL" "$CUSTOMER" "$SLOGAN" "$RENDEZVOUS_SERVER" "$API_SERVER"
-    
-    # 保存到实例变量
-    _TRIGGER_MANAGER_EXTRACTED_PARAMS="$params"
-    _TRIGGER_MANAGER_FINAL_DATA="$final_data"
-}
-
-# 公共方法：处理 issue 触发
-trigger_manager_process_issue() {
-    local event_data="$1"
-    
-    debug "log" "Processing issue trigger"
-    
-    # 提取参数
-    local params=$(trigger_manager_extract_issue_params "$event_data")
-    eval "$params"
-    
-    # 设置触发类型
-    _TRIGGER_MANAGER_TRIGGER_TYPE="issue"
-    local current_build_id="$BUILD_ID"
-    
-    debug "var" "Trigger type" "$_TRIGGER_MANAGER_TRIGGER_TYPE"
-    debug "var" "Current build ID" "$current_build_id"
-    
-    # 应用默认值
-    local final_params=$(trigger_manager_apply_default_values "$TAG" "$EMAIL" "$CUSTOMER" "$CUSTOMER_LINK" "$SUPER_PASSWORD" "$SLOGAN" "$RENDEZVOUS_SERVER" "$RS_PUB_KEY" "$API_SERVER")
-    eval "$final_params"
-    
-    # 处理tag时间戳
-    local final_tag=$(trigger_manager_process_tag_timestamp "$TAG")
-    
-    # 生成最终JSON数据
-    local final_data=$(trigger_manager_generate_final_data "$final_tag" "$TAG" "$EMAIL" "$CUSTOMER" "$CUSTOMER_LINK" "$SUPER_PASSWORD" "$SLOGAN" "$RENDEZVOUS_SERVER" "$RS_PUB_KEY" "$API_SERVER")
-    
-    # 清理issue内容
-    if [ -n "$current_build_id" ]; then
-        local cleaned_body=$(trigger_manager_clean_issue_content "$final_tag" "$TAG" "$CUSTOMER" "$SLOGAN")
-        trigger_manager_update_issue_content "$current_build_id" "$cleaned_body"
-    fi
-    
-    # 输出到GitHub Actions
-    trigger_manager_output_to_github "$final_data" "$_TRIGGER_MANAGER_TRIGGER_TYPE" "$current_build_id" "$final_tag" "$EMAIL" "$CUSTOMER" "$SLOGAN" "$RENDEZVOUS_SERVER" "$API_SERVER"
-    
-    # 保存到实例变量
-    _TRIGGER_MANAGER_EXTRACTED_PARAMS="$params"
-    _TRIGGER_MANAGER_FINAL_DATA="$final_data"
 }
 
 # 公共方法：获取触发类型
@@ -474,14 +397,6 @@ trigger_manager() {
     trigger_manager_init "$event_name" "$event_data" "$build_id"
     
     case "$operation" in
-        "process")
-            # 判断触发方式并处理
-            if [ "$_TRIGGER_MANAGER_EVENT_NAME" = "workflow_dispatch" ]; then
-                trigger_manager_process_workflow_dispatch "$_TRIGGER_MANAGER_EVENT_DATA" "$_TRIGGER_MANAGER_BUILD_ID"
-            else
-                trigger_manager_process_issue "$_TRIGGER_MANAGER_EVENT_DATA"
-            fi
-            ;;
         "extract-workflow-dispatch")
             trigger_manager_extract_workflow_dispatch_params "$event_data"
             ;;
@@ -546,57 +461,21 @@ trigger_manager() {
             local api_server="$6"
             trigger_manager_validate_params "$tag" "$email" "$customer" "$rendezvous_server" "$api_server"
             ;;
+        "output-to-github")
+            local final_data="$2"
+            local trigger_type="$3"
+            local build_id="$4"
+            local final_tag="$5"
+            local email="$6"
+            local customer="$7"
+            local slogan="$8"
+            local rendezvous_server="$9"
+            local api_server="${10}"
+            trigger_manager_output_to_github "$final_data" "$trigger_type" "$build_id" "$final_tag" "$email" "$customer" "$slogan" "$rendezvous_server" "$api_server"
+            ;;
         *)
             debug "error" "Unknown operation: $operation"
             return 1
             ;;
     esac
-}
-
-# 兼容性函数 - 保持向后兼容
-extract_workflow_dispatch_params() {
-    trigger_manager "extract-workflow-dispatch" "" "$1" ""
-}
-
-extract_issue_params() {
-    trigger_manager "extract-issue" "" "$1" ""
-}
-
-apply_default_values() {
-    trigger_manager "apply-defaults" "" "" "" "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}"
-}
-
-process_tag_timestamp() {
-    trigger_manager "process-tag" "" "$1" ""
-}
-
-generate_final_data() {
-    trigger_manager "generate-data" "" "" "" "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "${11}"
-}
-
-update_issue_content() {
-    trigger_manager "update-issue" "" "$1" "$2" ""
-}
-
-process_trigger() {
-    trigger_manager "process" "$1" "$2" "$3"
-}
-
-# 如果直接运行此脚本
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    if [ $# -lt 1 ]; then
-        echo "Usage: $0 <operation> [event_name] [event_data] [build_id] [additional_params...]"
-        echo "Operations: process, extract-workflow-dispatch, extract-issue, apply-defaults,"
-        echo "           process-tag, generate-data, update-issue, clean-issue,"
-        echo "           get-trigger-type, get-final-data, get-extracted-params, validate"
-        exit 1
-    fi
-    
-    operation="$1"
-    event_name="${2:-}"
-    event_data="${3:-}"
-    build_id="${4:-}"
-    shift 4
-    
-    trigger_manager "$operation" "$event_name" "$event_data" "$build_id" "$@"
-fi 
+} 
