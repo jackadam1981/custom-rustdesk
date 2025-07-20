@@ -1,14 +1,81 @@
 #!/bin/bash
-# 审核和验证脚本
-# 这个文件处理构建审核和参数验证逻辑
+# 审核和验证脚本 - 伪面向对象模式
+# 这个文件处理构建审核和参数验证逻辑，采用简单的伪面向对象设计
 
 # 加载依赖脚本
 source .github/workflows/scripts/debug-utils.sh
 source .github/workflows/scripts/issue-templates.sh
 source .github/workflows/scripts/issue-manager.sh
 
-# 检查是否为私有IP地址
-check_private_ip() {
+# 审核管理器 - 伪面向对象实现
+# 使用全局变量存储实例状态
+
+# 私有属性（全局变量）
+_REVIEW_MANAGER_TRIGGER_DATA=""
+_REVIEW_MANAGER_ACTOR=""
+_REVIEW_MANAGER_REPO_OWNER=""
+_REVIEW_MANAGER_TRIGGER_TYPE=""
+_REVIEW_MANAGER_RENDEZVOUS_SERVER=""
+_REVIEW_MANAGER_API_SERVER=""
+_REVIEW_MANAGER_EMAIL=""
+_REVIEW_MANAGER_ORIGINAL_ISSUE_NUMBER=""
+
+# 构造函数
+review_manager_init() {
+    local trigger_data="$1"
+    local actor="$2"
+    local repo_owner="$3"
+    
+    _REVIEW_MANAGER_TRIGGER_DATA="$trigger_data"
+    _REVIEW_MANAGER_ACTOR="$actor"
+    _REVIEW_MANAGER_REPO_OWNER="$repo_owner"
+    
+    # 检测触发类型
+    _REVIEW_MANAGER_TRIGGER_TYPE=$(review_manager_detect_trigger_type)
+    
+    # 提取服务器参数
+    review_manager_extract_parameters
+    
+    debug "log" "Initializing review manager"
+    debug "var" "Trigger type" "$_REVIEW_MANAGER_TRIGGER_TYPE"
+    debug "var" "Actor" "$_REVIEW_MANAGER_ACTOR"
+    debug "var" "Repo owner" "$_REVIEW_MANAGER_REPO_OWNER"
+}
+
+# 私有方法：检测触发类型
+review_manager_detect_trigger_type() {
+    if [ -n "$GITHUB_EVENT_NAME" ]; then
+        case "$GITHUB_EVENT_NAME" in
+            "workflow_dispatch")
+                echo "workflow_dispatch"
+                ;;
+            "issues")
+                echo "issue"
+                ;;
+            *)
+                echo "$GITHUB_EVENT_NAME"
+                ;;
+        esac
+    else
+        echo "${TRIGGER_TYPE:-unknown}"
+    fi
+}
+
+# 私有方法：提取参数
+review_manager_extract_parameters() {
+    debug "log" "Extracting parameters from trigger data"
+    
+    _REVIEW_MANAGER_RENDEZVOUS_SERVER=$(echo "$_REVIEW_MANAGER_TRIGGER_DATA" | jq -r '.rendezvous_server // empty')
+    _REVIEW_MANAGER_API_SERVER=$(echo "$_REVIEW_MANAGER_TRIGGER_DATA" | jq -r '.api_server // empty')
+    _REVIEW_MANAGER_EMAIL=$(echo "$_REVIEW_MANAGER_TRIGGER_DATA" | jq -r '.email // empty')
+    
+    debug "var" "Rendezvous server" "$_REVIEW_MANAGER_RENDEZVOUS_SERVER"
+    debug "var" "API server" "$_REVIEW_MANAGER_API_SERVER"
+    debug "var" "Email" "$_REVIEW_MANAGER_EMAIL"
+}
+
+# 私有方法：检查是否为私有IP地址
+review_manager_check_private_ip() {
     local ip="$1"
     
     # 如果为空，返回false
@@ -63,87 +130,86 @@ check_private_ip() {
     return 1
 }
 
-# 验证服务器参数
-validate_server_parameters() {
-    local rendezvous_server="$1"
-    local api_server="$2"
-    local email="$3"
+# 私有方法：获取原始issue编号
+review_manager_get_original_issue_number() {
+    if [ "$GITHUB_EVENT_NAME" = "issues" ] && [ -n "$GITHUB_EVENT_PATH" ]; then
+        jq -r '.issue.number // empty' "$GITHUB_EVENT_PATH" 2>/dev/null
+    else
+        curl -s \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" | \
+            jq -r '.jobs[0].steps[] | select(.name == "Setup framework") | .outputs.build_id // empty'
+    fi
+}
+
+# 公共方法：并行验证所有参数
+review_manager_validate_parameters() {
+    debug "log" "Starting parallel parameter validation"
     
-    # 检查关键参数是否为空
-    if [ -z "$rendezvous_server" ] || [ -z "$api_server" ]; then
-        echo "Critical server parameters are missing"
-        return 1
+    local issues=()
+    local has_issues=false
+    
+    # 检查关键服务器参数是否为空
+    if [ -z "$_REVIEW_MANAGER_RENDEZVOUS_SERVER" ]; then
+        issues+=("Rendezvous server is missing")
+        has_issues=true
     fi
     
-    # 检查是否为私有IP
-    if check_private_ip "$rendezvous_server"; then
-        echo "Rendezvous server is a private IP: $rendezvous_server"
-        return 0  # 需要审核
-    fi
-    
-    if check_private_ip "$api_server"; then
-        echo "API server is a private IP: $api_server"
-        return 0  # 需要审核
+    if [ -z "$_REVIEW_MANAGER_API_SERVER" ]; then
+        issues+=("API server is missing")
+        has_issues=true
     fi
     
     # 检查邮箱格式
-    if [ -n "$email" ] && [[ ! "$email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
-        echo "Invalid email format: $email"
-        return 1
+    if [ -n "$_REVIEW_MANAGER_EMAIL" ] && [[ ! "$_REVIEW_MANAGER_EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+        issues+=("Invalid email format: $_REVIEW_MANAGER_EMAIL")
+        has_issues=true
     fi
     
-    echo "All parameters are valid"
-    return 0
+    # 返回结果
+    if [ "$has_issues" = "true" ]; then
+        local issues_json=$(printf '%s\n' "${issues[@]}" | jq -R . | jq -s .)
+        echo "$issues_json"
+        return 0  # 返回0表示有问题
+    else
+        echo "[]"
+        return 1  # 返回1表示没有问题
+    fi
 }
 
-# 设置审核数据
-setup_review_data() {
-    local trigger_output="$1"
-    
-    # 设置环境变量
-    echo "TRIGGER_OUTPUT=$trigger_output" >> $GITHUB_ENV
-    echo "BUILD_REJECTED=false" >> $GITHUB_ENV
-    echo "BUILD_TIMEOUT=false" >> $GITHUB_ENV
-}
-
-# 确定是否需要审核
-determine_review_requirement() {
-    local trigger_type="$1"
-    local rendezvous_server="$2"
-    local api_server="$3"
-    local actor="$4"
-    local repo_owner="$5"
-    
-    debug "var" "Trigger type" "$trigger_type"
-    debug "var" "Rendezvous server" "$rendezvous_server"
-    debug "var" "API server" "$api_server"
-    debug "var" "Actor" "$actor"
-    debug "var" "Repo owner" "$repo_owner"
+# 公共方法：确定是否需要审核
+review_manager_need_review() {
+    debug "var" "Trigger type" "$_REVIEW_MANAGER_TRIGGER_TYPE"
+    debug "var" "Rendezvous server" "$_REVIEW_MANAGER_RENDEZVOUS_SERVER"
+    debug "var" "API server" "$_REVIEW_MANAGER_API_SERVER"
+    debug "var" "Actor" "$_REVIEW_MANAGER_ACTOR"
+    debug "var" "Repo owner" "$_REVIEW_MANAGER_REPO_OWNER"
     
     # 手动触发：无需审核
-    if [ "$trigger_type" = "workflow_dispatch" ]; then
+    if [ "$_REVIEW_MANAGER_TRIGGER_TYPE" = "workflow_dispatch" ]; then
         debug "log" "Manual trigger - no review needed"
         echo "false"
         return 0
     fi
     
     # Issue触发：需要审核
-    if [ "$trigger_type" = "issue" ]; then
+    if [ "$_REVIEW_MANAGER_TRIGGER_TYPE" = "issue" ]; then
         # 如果是仓库所有者，不需要审核
-        if [ "$actor" = "$repo_owner" ]; then
+        if [ "$_REVIEW_MANAGER_ACTOR" = "$_REVIEW_MANAGER_REPO_OWNER" ]; then
             debug "log" "Issue trigger by repo owner - no review needed"
             echo "false"
             return 0
         fi
         
         # 检查是否为公网IP或域名（需要审核）
-        if [ -n "$rendezvous_server" ] && ! check_private_ip "$rendezvous_server"; then
+        if [ -n "$_REVIEW_MANAGER_RENDEZVOUS_SERVER" ] && ! review_manager_check_private_ip "$_REVIEW_MANAGER_RENDEZVOUS_SERVER"; then
             debug "log" "Rendezvous server is public IP/domain - review needed"
             echo "true"
             return 0
         fi
         
-        if [ -n "$api_server" ] && ! check_private_ip "$api_server"; then
+        if [ -n "$_REVIEW_MANAGER_API_SERVER" ] && ! review_manager_check_private_ip "$_REVIEW_MANAGER_API_SERVER"; then
             debug "log" "API server is public IP/domain - review needed"
             echo "true"
             return 0
@@ -158,110 +224,18 @@ determine_review_requirement() {
     echo "false"
 }
 
-# 并行检查所有参数
-validate_all_parameters() {
-    local rendezvous_server="$1"
-    local api_server="$2"
-    local email="$3"
-    
-    local issues=()
-    local has_issues=false
-    
-    # 检查关键服务器参数是否为空
-    if [ -z "$rendezvous_server" ]; then
-        issues+=("Rendezvous server is missing")
-        has_issues=true
-    fi
-    
-    if [ -z "$api_server" ]; then
-        issues+=("API server is missing")
-        has_issues=true
-    fi
-    
-    # 检查邮箱格式
-    if [ -n "$email" ] && [[ ! "$email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
-        issues+=("Invalid email format: $email")
-        has_issues=true
-    fi
-    
-    # 注意：公网IP和域名不需要在这里检查，它们会在审核流程中处理
-    # 这里只检查真正的验证错误（缺失参数、无效邮箱等）
-    
-    # 返回结果
-    if [ "$has_issues" = "true" ]; then
-        # 将问题数组转换为JSON字符串
-        local issues_json=$(printf '%s\n' "${issues[@]}" | jq -R . | jq -s .)
-        echo "$issues_json"
-        return 0  # 返回0表示有问题
-    else
-        echo "[]"
-        return 1  # 返回1表示没有问题
-    fi
-}
-
-# 获取原始issue编号
-get_original_issue_number() {
-    # 如果是Issue触发，直接从github.event中获取Issue编号
-    if [ "$GITHUB_EVENT_NAME" = "issues" ] && [ -n "$GITHUB_EVENT_PATH" ]; then
-        # 从github.event文件中读取Issue编号
-        jq -r '.issue.number // empty' "$GITHUB_EVENT_PATH" 2>/dev/null
-    else
-        # 备用方法：通过API调用获取（保持向后兼容）
-        curl -s \
-            -H "Authorization: token $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" | \
-            jq -r '.jobs[0].steps[] | select(.name == "Setup framework") | .outputs.build_id // empty'
-    fi
-}
-
-# 提取和验证数据
-extract_and_validate_data() {
-    local input="$1"
-    
-    # 简单输出接收到的数据（重定向到stderr避免被当作变量赋值）
-    debug "log" "Review.sh接收到输入数据"
-    
-    # 直接使用输入数据
-    local parsed_input="$input"
-    
-    # 提取服务器地址
-    local rendezvous_server=$(echo "$parsed_input" | jq -r '.rendezvous_server // empty')
-    local api_server=$(echo "$parsed_input" | jq -r '.api_server // empty')
-    local email=$(echo "$parsed_input" | jq -r '.email // empty')
-    
-    # 设置环境变量供后续步骤使用
-    echo "RENDEZVOUS_SERVER=$rendezvous_server" >> $GITHUB_ENV
-    echo "API_SERVER=$api_server" >> $GITHUB_ENV
-    echo "EMAIL=$email" >> $GITHUB_ENV
-    echo "CURRENT_DATA=$parsed_input" >> $GITHUB_ENV
-    
-    # 调试输出（重定向到stderr避免干扰JSON解析）
-    debug "log" "Extracted data:"
-    debug "var" "RENDEZVOUS_SERVER" "$rendezvous_server"
-    debug "var" "API_SERVER" "$api_server"
-    debug "var" "EMAIL" "$email"
-    
-    # 返回提取的数据
-    echo "RENDEZVOUS_SERVER=$rendezvous_server"
-    echo "API_SERVER=$api_server"
-    echo "EMAIL=$email"
-    echo "PARSED_INPUT=$parsed_input"
-}
-
-# 处理审核流程
-handle_review_process() {
-    local rendezvous_server="$1"
-    local api_server="$2"
-    local original_issue_number="$3"
-    
+# 公共方法：处理审核流程
+review_manager_handle_review() {
     debug "log" "Review required. Starting review process..."
     
-    # 在issue中添加审核状态
-    local review_comment=$(generate_review_comment "$rendezvous_server" "$api_server")
+    # 获取原始issue编号
+    _REVIEW_MANAGER_ORIGINAL_ISSUE_NUMBER=$(review_manager_get_original_issue_number)
     
-    if [ -n "$original_issue_number" ]; then
-        add_issue_comment "$original_issue_number" "$review_comment"
+    # 在issue中添加审核状态
+    local review_comment=$(generate_review_comment "$_REVIEW_MANAGER_RENDEZVOUS_SERVER" "$_REVIEW_MANAGER_API_SERVER")
+    
+    if [ -n "$_REVIEW_MANAGER_ORIGINAL_ISSUE_NUMBER" ]; then
+        add_issue_comment "$_REVIEW_MANAGER_ORIGINAL_ISSUE_NUMBER" "$review_comment"
     fi
     
     # 循环检查审核回复
@@ -277,19 +251,15 @@ handle_review_process() {
         local comments=$(curl -s \
             -H "Authorization: token $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/$original_issue_number/comments")
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/$_REVIEW_MANAGER_ORIGINAL_ISSUE_NUMBER/comments")
         
         # 检查是否有管理员回复        
-        # 获取仓库所有者和管理员列表        
-        local repo_owner="$GITHUB_REPOSITORY_OWNER"
-        
-        # 检查是否有管理员回复（包括仓库所有者）
-        if echo "$comments" | jq -e --arg owner "$repo_owner" '.[] | select(.user.login == $owner or .user.login == "admin" or .user.login == "管理员用户名") | select(.body | contains("同意构建"))' > /dev/null 2>&1; then
+        if echo "$comments" | jq -e --arg owner "$_REVIEW_MANAGER_REPO_OWNER" '.[] | select(.user.login == $owner or .user.login == "admin" or .user.login == "管理员用户名") | select(.body | contains("同意构建"))' > /dev/null 2>&1; then
             approved=true
             break
         fi
         
-        if echo "$comments" | jq -e --arg owner "$repo_owner" '.[] | select(.user.login == $owner or .user.login == "admin" or .user.login == "管理员用户名") | select(.body | contains("拒绝构建"))' > /dev/null 2>&1; then
+        if echo "$comments" | jq -e --arg owner "$_REVIEW_MANAGER_REPO_OWNER" '.[] | select(.user.login == $owner or .user.login == "admin" or .user.login == "管理员用户名") | select(.body | contains("拒绝构建"))' > /dev/null 2>&1; then
             rejected=true
             break
         fi
@@ -305,7 +275,7 @@ handle_review_process() {
             debug "log" "No valid comments found or API error"
         fi
         
-        # 等待30秒后再次检查
+        # 等待30秒后再次检查        
         sleep 30
     done
     
@@ -315,40 +285,68 @@ handle_review_process() {
         return 0
     elif [ "$rejected" = "true" ]; then
         debug "error" "Build rejected by admin"
-        echo "BUILD_REJECTED=true" >> $GITHUB_ENV
         return 1
     else
         debug "error" "Build timed out during review"
-        echo "BUILD_TIMEOUT=true" >> $GITHUB_ENV
         return 2
     fi
 }
 
-# 输出数据
-output_data() {
-    local current_data="$1"
-    local build_rejected="$2"
-    local build_timeout="$3"
+# 公共方法：处理拒绝逻辑
+review_manager_handle_rejection() {
+    local validation_result="$1"
     
-    # 简单输出数据（重定向到stderr避免被当作变量赋值）
-    debug "log" "Review.sh输出数据"
+    debug "log" "Handling build rejection"
     
-    # 输出到GitHub Actions输出变量（使用多行格式避免截断）
+    # 如果是Issue触发，回复到原始Issue
+    if [ "$_REVIEW_MANAGER_TRIGGER_TYPE" = "issue" ]; then
+        _REVIEW_MANAGER_ORIGINAL_ISSUE_NUMBER=$(review_manager_get_original_issue_number)
+        if [ -n "$_REVIEW_MANAGER_ORIGINAL_ISSUE_NUMBER" ]; then
+            # 生成包含所有问题的拒绝回复
+            local current_time=$(date '+%Y-%m-%d %H:%M:%S')
+            local reject_comment=$(generate_comprehensive_rejection_comment "$validation_result" "$current_time")
+            add_issue_comment "$_REVIEW_MANAGER_ORIGINAL_ISSUE_NUMBER" "$reject_comment"
+            debug "log" "Comprehensive rejection comment added to issue #$_REVIEW_MANAGER_ORIGINAL_ISSUE_NUMBER"
+        fi
+    fi
+    
+    # 生成拒绝原因
+    local issues_count=$(echo "$validation_result" | jq 'length' 2>/dev/null)
+    local reject_reason=""
+    
+    if [ -n "$issues_count" ] && [ "$issues_count" -eq 1 ] 2>/dev/null; then
+        reject_reason=$(echo "$validation_result" | jq -r '.[0]')
+    else
+        reject_reason="Multiple validation issues found ($issues_count issues)"
+    fi
+    
+    # 设置拒绝原因到环境变量
+    echo "REJECT_REASON=$reject_reason" >> $GITHUB_ENV
+    
+    debug "error" "Build rejected: $reject_reason"
+}
+
+# 公共方法：输出数据
+review_manager_output_data() {
+    local build_rejected="$1"
+    local build_timeout="$2"
+    
+    debug "log" "Outputting review data"
+    
+    # 输出到GitHub Actions输出变量
     echo "data<<EOF" >> $GITHUB_OUTPUT
-    echo "$current_data" >> $GITHUB_OUTPUT
+    echo "$_REVIEW_MANAGER_TRIGGER_DATA" >> $GITHUB_OUTPUT
     echo "EOF" >> $GITHUB_OUTPUT
     
     # 根据标志设置构建批准状态    
     if [ "$build_rejected" = "true" ]; then
         echo "validation_passed=false" >> $GITHUB_OUTPUT
-        # 检查是否是自动拒绝（通过环境变量判断）
         if [ "$BUILD_REJECTED" = "true" ]; then
-            # 从环境变量中获取具体的拒绝原因
             local reject_reason="${REJECT_REASON:-Build was rejected due to validation issues}"
             echo "reject_reason=$reject_reason" >> $GITHUB_OUTPUT
             debug "error" "Build was rejected: $reject_reason"
         else
-            echo "reject_reason=Build was rejected by admin" >> $GITHUB_OUTPUT
+        echo "reject_reason=Build was rejected by admin" >> $GITHUB_OUTPUT
             debug "error" "Build was rejected by admin"
         fi
     elif [ "$build_timeout" = "true" ]; then
@@ -361,66 +359,89 @@ output_data() {
         debug "success" "Build was approved or no review needed"
     fi
     
-    # 显示输出信息
-    debug "log" "Review output: $current_data"
+    debug "log" "Review output: $_REVIEW_MANAGER_TRIGGER_DATA"
 }
 
-# 输出被拒绝构建的数据
-output_rejected_data() {
+# 公共方法：输出被拒绝构建的数据
+review_manager_output_rejected_data() {
     echo "data={}" >> $GITHUB_OUTPUT
     echo "validation_passed=false" >> $GITHUB_OUTPUT
     echo "reject_reason=Build was rejected - no data to pass forward" >> $GITHUB_OUTPUT
     debug "error" "Build was rejected - no data to pass forward"
 }
 
-# 主处理函数
-process_review() {
-    local trigger_output="$1"
-    local actor="$2"
-    local repo_owner="$3"
+# 公共方法：获取触发数据
+review_manager_get_trigger_data() {
+    echo "$_REVIEW_MANAGER_TRIGGER_DATA"
+}
 
-    debug "log" "原始输入: $trigger_output"
+# 公共方法：获取服务器参数
+review_manager_get_server_params() {
+    echo "RENDEZVOUS_SERVER=$_REVIEW_MANAGER_RENDEZVOUS_SERVER"
+    echo "API_SERVER=$_REVIEW_MANAGER_API_SERVER"
+    echo "EMAIL=$_REVIEW_MANAGER_EMAIL"
+}
+
+# 主审核管理函数 - 供工作流调用
+review_manager() {
+    local operation="$1"
+    local trigger_data="$2"
+    local actor="$3"
+    local repo_owner="$4"
+    
+    # 初始化审核管理器
+    review_manager_init "$trigger_data" "$actor" "$repo_owner"
+    
+    case "$operation" in
+        "validate")
+            review_manager_validate_parameters
+            ;;
+        "need-review")
+            review_manager_need_review
+            ;;
+        "handle-review")
+            review_manager_handle_review
+            ;;
+        "handle-rejection")
+            local validation_result="$5"
+            review_manager_handle_rejection "$validation_result"
+            ;;
+        "output-data")
+            local build_rejected="$5"
+            local build_timeout="$6"
+            review_manager_output_data "$build_rejected" "$build_timeout"
+            ;;
+        "output-rejected")
+            review_manager_output_rejected_data
+            ;;
+        "get-trigger-data")
+            review_manager_get_trigger_data
+            ;;
+        "get-server-params")
+            review_manager_get_server_params
+            ;;
+        "process")
+            # 完整的审核处理流程
+            review_manager_process_review
+            ;;
+        *)
+            debug "error" "Unknown operation: $operation"
+            return 1
+            ;;
+    esac
+}
+
+# 完整的审核处理流程
+review_manager_process_review() {
+    debug "log" "Starting complete review process"
     
     # 设置审核数据
-    setup_review_data "$trigger_output"
-    
-    # 提取和验证数据    
-    local extracted_data=$(extract_and_validate_data "$trigger_output")
-    # 安全地设置变量，避免eval破坏JSON格式
-    while IFS='=' read -r var_name var_value; do
-        if [[ "$var_name" == "PARSED_INPUT" ]]; then
-            # 对于JSON数据，使用printf安全设置
-            printf -v "$var_name" '%s' "$var_value"
-        else
-            # 对于普通变量，直接设置
-            eval "$var_name=\"$var_value\""
-        fi
-    done <<< "$extracted_data"
-    
-    # 从GitHub事件中检测触发类型
-    local trigger_type=""
-    if [ -n "$GITHUB_EVENT_NAME" ]; then
-        # 将GitHub事件名称映射到我们的触发类型
-        case "$GITHUB_EVENT_NAME" in
-            "workflow_dispatch")
-                trigger_type="workflow_dispatch"
-                ;;
-            "issues")
-                trigger_type="issue"
-                ;;
-            *)
-                trigger_type="$GITHUB_EVENT_NAME"
-                ;;
-        esac
-    else
-        # 在本地测试环境中，尝试从环境变量获取
-        trigger_type="${TRIGGER_TYPE:-unknown}"
-    fi
-    
-    debug "var" "Trigger type" "$trigger_type"
+    echo "TRIGGER_OUTPUT=$_REVIEW_MANAGER_TRIGGER_DATA" >> $GITHUB_ENV
+    echo "BUILD_REJECTED=false" >> $GITHUB_ENV
+    echo "BUILD_TIMEOUT=false" >> $GITHUB_ENV
     
     # 并行检查所有参数
-    local validation_result=$(validate_all_parameters "$RENDEZVOUS_SERVER" "$API_SERVER" "$EMAIL")
+    local validation_result=$(review_manager_validate_parameters)
     local validation_exit_code=$?
     
     debug "log" "Validation result: '$validation_result'"
@@ -428,57 +449,21 @@ process_review() {
     
     # 如果有问题，处理拒绝逻辑
     if [ $validation_exit_code -eq 0 ] && [ "$validation_result" != "[]" ]; then
-        # 设置拒绝标志
         export BUILD_REJECTED="true"
-        
-        # 解析问题列表
-        local issues_array=$(echo "$validation_result" | jq -r '.[]' 2>/dev/null)
-        local issues_count=$(echo "$validation_result" | jq 'length' 2>/dev/null)
-        
-        if [ -n "$issues_count" ] && [ "$issues_count" -gt 0 ] 2>/dev/null; then
-            debug "log" "Found $issues_count validation issues"
-        else
-            debug "log" "Found validation issues (count: $issues_count)"
-        fi
-        
-        # 如果是Issue触发，回复到原始Issue
-        if [ "$trigger_type" = "issue" ]; then
-            local original_issue_number=$(get_original_issue_number)
-            if [ -n "$original_issue_number" ]; then
-                # 生成包含所有问题的拒绝回复
-                local current_time=$(date '+%Y-%m-%d %H:%M:%S')
-                local reject_comment=$(generate_comprehensive_rejection_comment "$validation_result" "$current_time")
-                add_issue_comment "$original_issue_number" "$reject_comment"
-                debug "log" "Comprehensive rejection comment added to issue #$original_issue_number"
-            fi
-        fi
-        
-        # 生成拒绝原因（用于输出）
-        local reject_reason=""
-        if [ -n "$issues_count" ] && [ "$issues_count" -eq 1 ] 2>/dev/null; then
-            reject_reason=$(echo "$validation_result" | jq -r '.[0]')
-        else
-            reject_reason="Multiple validation issues found ($issues_count issues)"
-        fi
-        
-        # 设置拒绝原因到环境变量
-        echo "REJECT_REASON=$reject_reason" >> $GITHUB_ENV
-        
-        output_data "$PARSED_INPUT" "true" "false"
-        return 0  # 正常退出，不抛出错误
+        review_manager_handle_rejection "$validation_result"
+        review_manager_output_data "true" "false"
+        return 0
     else
-        # 没有问题，设置标志为false
         export BUILD_REJECTED="false"
     fi
     
     # 确定是否需要审核    
-    local need_review=$(determine_review_requirement "$trigger_type" "$RENDEZVOUS_SERVER" "$API_SERVER" "$actor" "$repo_owner")
+    local need_review=$(review_manager_need_review)
     debug "log" "Need review: $need_review"
     
     # 如果需要审核，处理审核流程
     if [ "$need_review" = "true" ]; then
-        local original_issue_number=$(get_original_issue_number)
-        handle_review_process "$RENDEZVOUS_SERVER" "$API_SERVER" "$original_issue_number"
+        review_manager_handle_review
         local review_result=$?
         
         if [ $review_result -eq 1 ]; then
@@ -487,11 +472,37 @@ process_review() {
         elif [ $review_result -eq 2 ]; then
             # 超时
             echo "BUILD_TIMEOUT=true" >> $GITHUB_ENV
-            output_rejected_data
+            review_manager_output_rejected_data
             return 1
         fi
     fi
     
     # 输出数据
-    output_data "$PARSED_INPUT" "$BUILD_REJECTED" "$BUILD_TIMEOUT"
+    review_manager_output_data "$BUILD_REJECTED" "$BUILD_TIMEOUT"
 }
+
+# 兼容性函数 - 保持向后兼容
+process_review() {
+    local trigger_output="$1"
+    local actor="$2"
+    local repo_owner="$3"
+    
+    debug "log" "Calling review_manager process with legacy function"
+    review_manager "process" "$trigger_output" "$actor" "$repo_owner"
+}
+
+# 如果直接运行此脚本
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    if [ $# -lt 3 ]; then
+        echo "Usage: $0 <operation> <trigger_data> <actor> [repo_owner] [additional_params...]"
+        echo "Operations: validate, need-review, handle-review, handle-rejection, output-data, output-rejected, get-trigger-data, get-server-params, process"
+        exit 1
+    fi
+    
+    operation="$1"
+    trigger_data="$2"
+    actor="$3"
+    repo_owner="${4:-}"
+    
+    review_manager "$operation" "$trigger_data" "$actor" "$repo_owner"
+fi

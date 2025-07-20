@@ -359,51 +359,221 @@ generate_cleaned_issue_body() {
 EOF
 }
 
-# 如果直接运行此脚本
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    if [ $# -lt 2 ]; then
-        echo "Usage: $0 <template_type> <parameters...>"
-        echo "Template types: queue_management, hybrid_lock, cleanup, reset, review, optimistic, pessimistic, reset_notification, cleaned_issue, rejection"
-        exit 1
-    fi
+# 生成拒绝评论
+generate_rejection_comment() {
+    local username="$1"
+    local reason="$2"
     
-    template_type="$1"
-    shift 1
+    cat <<EOF
+## ❌ 构建请求被拒绝
+
+**用户：** @$username
+**拒绝原因：** $reason
+
+**拒绝时间：** $(date '+%Y-%m-%d %H:%M:%S')
+
+请检查构建参数后重新提交请求。
+
+---
+*如有疑问，请联系管理员*
+EOF
+}
+
+# 生成批准评论
+generate_approval_comment() {
+    local username="$1"
+    local message="$2"
     
-    case "$template_type" in
-        "queue_management")
-            generate_queue_management_body "$@"
-            ;;
-        "hybrid_lock")
-            generate_hybrid_lock_status_body "$@"
-            ;;
-        "cleanup")
-            generate_queue_cleanup_record "$@"
-            ;;
-        "reset")
-            generate_queue_reset_record "$@"
-            ;;
-        "review")
-            generate_review_comment "$@"
-            ;;
-        "optimistic")
-            generate_optimistic_lock_notification "$@"
-            ;;
-        "pessimistic")
-            generate_pessimistic_lock_notification "$@"
-            ;;
-        "reset_notification")
-            generate_queue_reset_notification "$@"
-            ;;
-        "cleaned_issue")
-            generate_cleaned_issue_body "$@"
-            ;;
-        "rejection")
-            generate_build_rejection_comment "$@"
-            ;;
-        *)
-            echo "Unknown template type: $template_type"
-            exit 1
-            ;;
-    esac
-fi 
+    cat <<EOF
+## ✅ 构建请求已批准
+
+**用户：** @$username
+**状态：** $message
+
+**批准时间：** $(date '+%Y-%m-%d %H:%M:%S')
+
+构建已加入队列，请等待构建完成。
+
+---
+*构建进度将通过评论更新*
+EOF
+}
+
+# 生成构建开始评论
+generate_build_start_comment() {
+    local username="$1"
+    local build_id="$2"
+    local queue_position="$3"
+    
+    cat <<EOF
+## 🚀 构建已开始
+
+**用户：** @$username
+**构建ID：** $build_id
+**队列位置：** $queue_position
+
+**开始时间：** $(date '+%Y-%m-%d %H:%M:%S')
+
+构建正在执行中，请耐心等待...
+
+---
+*构建完成后将自动更新状态*
+EOF
+}
+
+# 生成构建成功评论
+generate_build_success_comment() {
+    local username="$1"
+    local build_id="$2"
+    local build_url="$3"
+    local duration="$4"
+    
+    cat <<EOF
+## ✅ 构建成功完成
+
+**用户：** @$username
+**构建ID：** $build_id
+**构建时长：** ${duration}秒
+
+**完成时间：** $(date '+%Y-%m-%d %H:%M:%S')
+
+### 构建结果
+- **状态：** 成功 ✅
+- **构建日志：** [查看详情]($build_url)
+- **下载地址：** 请查看构建日志中的下载链接
+
+### 使用说明
+1. 下载构建产物
+2. 解压并安装
+3. 配置服务器参数
+4. 启动服务
+
+---
+*构建已完成，issue将自动关闭*
+EOF
+}
+
+# 生成构建失败评论
+generate_build_failure_comment() {
+    local username="$1"
+    local build_id="$2"
+    local build_url="$3"
+    local error_message="$4"
+    local duration="$5"
+    
+    cat <<EOF
+## ❌ 构建失败
+
+**用户：** @$username
+**构建ID：** $build_id
+**构建时长：** ${duration}秒
+
+**失败时间：** $(date '+%Y-%m-%d %H:%M:%S')
+
+### 构建结果
+- **状态：** 失败 ❌
+- **构建日志：** [查看详情]($build_url)
+- **错误信息：** $error_message
+
+### 可能的原因
+1. 编译错误
+2. 依赖缺失
+3. 配置错误
+4. 网络问题
+
+### 建议操作
+1. 检查构建日志
+2. 修复错误
+3. 重新提交构建请求
+
+---
+*如需帮助，请联系管理员*
+EOF
+}
+
+# 生成超时评论
+generate_timeout_comment() {
+    local username="$1"
+    local timeout_type="$2"
+    local timeout_duration="$3"
+    
+    cat <<EOF
+## ⏰ 操作超时
+
+**用户：** @$username
+**超时类型：** $timeout_type
+**超时时长：** ${timeout_duration}秒
+
+**超时时间：** $(date '+%Y-%m-%d %H:%M:%S')
+
+### 超时说明
+- 审核超时：管理员未在指定时间内审核
+- 构建超时：构建过程超过最大时间限制
+- 等待超时：等待锁释放超过最大时间
+
+### 建议操作
+1. 检查网络连接
+2. 重新提交请求
+3. 联系管理员
+
+---
+*系统将自动清理相关资源*
+EOF
+}
+
+# 生成队列满员评论
+generate_queue_full_comment() {
+    local username="$1"
+    local current_count="$2"
+    local max_count="$3"
+    
+    cat <<EOF
+## 🚫 队列已满
+
+**用户：** @$username
+**当前队列：** $current_count/$max_count
+
+**拒绝时间：** $(date '+%Y-%m-%d %H:%M:%S')
+
+### 队列状态
+- **当前数量：** $current_count
+- **最大容量：** $max_count
+- **状态：** 队列已满，无法接受新请求
+
+### 建议操作
+1. 等待队列中的构建完成
+2. 稍后重新提交请求
+3. 联系管理员增加队列容量
+
+---
+*队列状态会定期更新*
+EOF
+}
+
+# 生成权限不足评论
+generate_permission_denied_comment() {
+    local username="$1"
+    local required_permission="$2"
+    
+    cat <<EOF
+## 🔒 权限不足
+
+**用户：** @$username
+**所需权限：** $required_permission
+
+**拒绝时间：** $(date '+%Y-%m-%d %H:%M:%S')
+
+### 权限说明
+- **当前权限：** 普通用户
+- **所需权限：** $required_permission
+- **权限范围：** 仓库所有者和管理员
+
+### 建议操作
+1. 联系仓库所有者
+2. 请求管理员权限
+3. 使用其他方式提交构建请求
+
+---
+*权限问题请联系仓库管理员*
+EOF
+}

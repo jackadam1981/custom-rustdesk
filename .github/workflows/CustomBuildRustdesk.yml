@@ -111,7 +111,7 @@ jobs:
           GITHUB_EVENT_PATH: ${{ github.event_path }}
         run: |
           source .github/workflows/scripts/review.sh
-          process_review "$TRIGGER_DATA" "${{ github.actor }}" "${{ github.repository_owner }}"
+          review_manager "process" "$TRIGGER_DATA" "${{ github.actor }}" "${{ github.repository_owner }}"
           
 
           

@@ -222,8 +222,8 @@ process_finish() {
     cleanup_build_environment "$build_id"
     local cleanup_completed="true"
     
-    # 🔓 释放构建锁（重要：确保锁被释放）
-    debug "log" "Releasing build lock for build $build_id"
+    # 🔓 释放构建锁（重要：无论构建成功还是失败都必须释放锁）
+    debug "log" "Releasing build lock for build $build_id (status: $build_status)"
     local lock_released="false"
     
     # 确保有必要的环境变量
@@ -231,11 +231,13 @@ process_finish() {
         debug "warning" "GITHUB_TOKEN not set, skipping lock release"
         lock_released="skipped"
     else
+        # 无论构建状态如何，都必须释放构建锁
+        debug "log" "Attempting to release pessimistic build lock..."
         if queue_manager "release" "${QUEUE_ISSUE_NUMBER:-1}" "$build_id"; then
-            debug "success" "Successfully released build lock"
+            debug "success" "Successfully released pessimistic build lock"
             lock_released="true"
         else
-            debug "error" "Failed to release build lock"
+            debug "error" "Failed to release pessimistic build lock"
             lock_released="false"
         fi
     fi
