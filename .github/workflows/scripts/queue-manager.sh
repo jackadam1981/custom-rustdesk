@@ -229,26 +229,12 @@ queue_manager_update_with_lock() {
 
 # 公共方法：获取队列状态
 queue_manager_get_status() {
-    echo "=== 队列状态 ==="
-    queue_manager_get_statistics
-    echo ""
-    queue_manager_show_details
-}
-
-# 私有方法：获取统计信息
-queue_manager_get_statistics() {
     local queue_length=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq '.queue | length // 0')
     local current_run_id=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq -r '.run_id // "null"')
     local version=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq -r '.version // 1')
     
-    # 按类型统计
-    local workflow_dispatch_count=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq -r '.queue[] | select(.trigger_type == "workflow_dispatch") | .build_id' | wc -l)
-    local issue_count=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq -r '.queue[] | select(.trigger_type == "issue") | .build_id' | wc -l)
-    
     echo "队列统计:"
     echo "  总数量: $queue_length"
-    echo "  手动触发: $workflow_dispatch_count"
-    echo "  Issue触发: $issue_count"
     echo "  当前运行ID: $current_run_id"
     echo "  版本: $version"
 }
@@ -262,7 +248,7 @@ queue_manager_show_details() {
     echo "队列项列表:"
     local queue_length=$(echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq '.queue | length // 0')
     if [ "$queue_length" -gt 0 ]; then
-        echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq -r '.queue[] | "  - 构建ID: \(.build_id), 类型: \(.trigger_type), 客户: \(.customer), 加入时间: \(.join_time)"'
+        echo "$_QUEUE_MANAGER_QUEUE_DATA" | jq -r '.queue[] | "  - 构建ID: \(.build_id), 客户: \(.customer), 加入时间: \(.join_time)"'
     else
         echo "  队列为空"
     fi
@@ -271,13 +257,18 @@ queue_manager_show_details() {
 # 公共方法：乐观锁加入队列
 queue_manager_join() {
     local issue_number="$1"
-    local build_id="$2"
-    local trigger_type="$3"
-    local trigger_data="$4"
-    local queue_limit="${5:-5}"
+    local trigger_data="$2"
+    local queue_limit="${3:-5}"
     
     echo "=== 乐观锁加入队列 ==="
     debug "log" "Starting optimistic lock queue join process..."
+    
+    # 从trigger_data中提取build_id
+    local build_id=$(echo "$trigger_data" | jq -r '.build_id // empty')
+    if [ -z "$build_id" ]; then
+        debug "error" "No build_id found in trigger_data"
+        return 1
+    fi
     
     # 初始化队列管理器
     queue_manager_init "$issue_number"
@@ -335,21 +326,22 @@ queue_manager_join() {
         local tag=$(echo "$parsed_trigger_data" | jq -r '.tag // empty')
         local customer=$(echo "$parsed_trigger_data" | jq -r '.customer // empty')
         local slogan=$(echo "$parsed_trigger_data" | jq -r '.slogan // empty')
+        local trigger_type=$(echo "$parsed_trigger_data" | jq -r '.trigger_type // empty')
         
-        debug "log" "Extracted build info - tag: '$tag', customer: '$customer', slogan: '$slogan'"
+        debug "log" "Extracted build info - tag: '$tag', customer: '$customer', slogan: '$slogan', trigger_type: '$trigger_type'"
         
         # 创建新队列项
         debug "log" "Creating new queue item..."
         local new_queue_item=$(jq -c -n \
             --arg build_id "$build_id" \
             --arg build_title "Custom Rustdesk Build" \
-            --arg trigger_type "$trigger_type" \
             --arg tag "$tag" \
             --arg customer "$customer" \
             --arg customer_link "" \
             --arg slogan "$slogan" \
+            --arg trigger_type "$trigger_type" \
             --arg join_time "$_QUEUE_MANAGER_CURRENT_TIME" \
-            '{build_id: $build_id, build_title: $build_title, trigger_type: $trigger_type, tag: $tag, customer: $customer, customer_link: $customer_link, slogan: $slogan, join_time: $join_time}')
+            '{build_id: $build_id, build_title: $build_title, tag: $tag, customer: $customer, customer_link: $customer_link, slogan: $slogan, trigger_type: $trigger_type, join_time: $join_time}')
         
         debug "log" "New queue item created: $new_queue_item"
         
@@ -885,11 +877,9 @@ queue_manager() {
             queue_manager_get_status
             ;;
         "join")
-            local build_id="$1"
-            local trigger_type="$2"
-            local trigger_data="$3"
-            local queue_limit="${4:-5}"
-            queue_manager_join "$issue_number" "$build_id" "$trigger_type" "$trigger_data" "$queue_limit"
+            local trigger_data="$1"
+            local queue_limit="${2:-5}"
+            queue_manager_join "$issue_number" "$trigger_data" "$queue_limit"
             ;;
         "acquire")
             local build_id="$1"

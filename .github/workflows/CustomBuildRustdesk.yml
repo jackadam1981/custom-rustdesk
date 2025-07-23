@@ -61,74 +61,77 @@ env:
   # 队列管理配置
   QUEUE_ISSUE_NUMBER: '1'
   # 调试配置 - 默认不开启调试，只在手动触发时可通过input控制
-  DEBUG_ENABLED: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.enable_debug == 'true' || 'false' }}
+  # DEBUG_ENABLED: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.enable_debug == 'true' || 'false' }}
+  DEBUG_ENABLED: true
+  # 默认值配置
+  DEFAULT_TAG: ${{ secrets.DEFAULT_TAG }}
+  DEFAULT_EMAIL: ${{ secrets.DEFAULT_EMAIL }}
+  DEFAULT_CUSTOMER: ${{ secrets.DEFAULT_CUSTOMER }}
+  DEFAULT_CUSTOMER_LINK: ${{ secrets.DEFAULT_CUSTOMER_LINK }}
+  DEFAULT_SUPER_PASSWORD: ${{ secrets.DEFAULT_SUPER_PASSWORD }}
+  DEFAULT_SLOGAN: ${{ secrets.DEFAULT_SLOGAN }}
+  DEFAULT_RENDEZVOUS_SERVER: ${{ secrets.DEFAULT_RENDEZVOUS_SERVER }}
+  DEFAULT_RS_PUB_KEY: ${{ secrets.DEFAULT_RS_PUB_KEY }}
+  DEFAULT_API_SERVER: ${{ secrets.DEFAULT_API_SERVER }}
 
 jobs:
   # 00-触发处理
   trigger:
     runs-on: ubuntu-latest
     outputs:
-      trigger_type: ${{ steps.trigger.outputs.trigger_type }}
       build_id: ${{ steps.trigger.outputs.build_id }}
       trigger_data: ${{ steps.trigger.outputs.data }}
-      should_proceed: ${{ steps.trigger.outputs.should_proceed }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         
       - name: Setup trigger parameters
         id: trigger
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           source .github/workflows/scripts/trigger.sh
           
-          # 使用环境变量传递事件数据，避免命令行参数过长
-          export EVENT_NAME="${{ github.event_name }}"
+          # 使用环境变量传递事件数据
           export EVENT_DATA='${{ toJSON(github.event) }}'
-          export BUILD_ID="${{ github.run_id }}"
           
-          # 初始化trigger管理器
-          trigger_manager_init "$EVENT_NAME" "$EVENT_DATA" "$BUILD_ID"
-          
-          # 根据事件类型提取参数和设置触发类型
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            # 提取workflow_dispatch参数
-            params=$(trigger_manager "extract-workflow-dispatch" "" "$EVENT_DATA" "")
+          # 根据触发类型提取参数
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            params=$(trigger_manager "extract-workflow-dispatch" "$EVENT_DATA")
             eval "$params"
-            _TRIGGER_MANAGER_TRIGGER_TYPE="workflow_dispatch"
-            current_build_id="$BUILD_ID"
           else
-            # 提取issue参数
-            params=$(trigger_manager "extract-issue" "" "$EVENT_DATA" "")
+            echo "extract-issue"
+            params=$(trigger_manager "extract-issue" "$EVENT_DATA")
             eval "$params"
-            _TRIGGER_MANAGER_TRIGGER_TYPE="issue"
-            current_build_id="$BUILD_ID"
           fi
           
           # 应用默认值
-          final_params=$(trigger_manager "apply-defaults" "" "" "" "$TAG" "$EMAIL" "$CUSTOMER" "$CUSTOMER_LINK" "$SUPER_PASSWORD" "$SLOGAN" "$RENDEZVOUS_SERVER" "$RS_PUB_KEY" "$API_SERVER")
+          final_params=$(trigger_manager "apply-defaults" "$EVENT_DATA")
           eval "$final_params"
           
           # 处理tag时间戳
-          final_tag=$(trigger_manager "process-tag" "" "$TAG" "")
+          final_tag=$(trigger_manager "process-tag" "$EVENT_DATA")
           
           # 生成最终JSON数据
-          final_data=$(trigger_manager "generate-data" "" "" "" "$final_tag" "$TAG" "$EMAIL" "$CUSTOMER" "$CUSTOMER_LINK" "$SUPER_PASSWORD" "$SLOGAN" "$RENDEZVOUS_SERVER" "$RS_PUB_KEY" "$API_SERVER")
+          final_data=$(trigger_manager "generate-data" "$EVENT_DATA" "$final_tag")
           
           # 如果是issue触发，需要清理issue内容
-          if [ "$_TRIGGER_MANAGER_TRIGGER_TYPE" = "issue" ] && [ -n "$current_build_id" ]; then
-            cleaned_body=$(trigger_manager "clean-issue" "" "$final_tag" "$TAG" "$CUSTOMER" "$SLOGAN")
-            trigger_manager "update-issue" "" "$current_build_id" "$cleaned_body" ""
+          trigger_type="${{ github.event_name }}"
+          if [ "$trigger_type" = "issues" ]; then
+            cleaned_body=$(trigger_manager "clean-issue" "$final_tag" "$TAG" "$CUSTOMER" "$SLOGAN")
+            issue_number="${{ github.event.issue.number }}"
+            trigger_manager "update-issue" "$issue_number" "$cleaned_body"
           fi
           
           # 输出到GitHub Actions
-          trigger_manager "output-to-github" "" "$final_data" "$_TRIGGER_MANAGER_TRIGGER_TYPE" "$current_build_id" "$final_tag" "$EMAIL" "$CUSTOMER" "$SLOGAN" "$RENDEZVOUS_SERVER" "$API_SERVER"
+          trigger_manager "output-to-github" "$final_data"
           
 
           
   # 01-审查验证
   review:
     needs: trigger
-    if: needs.trigger.outputs.should_proceed == 'true'
     runs-on: ubuntu-latest
     outputs:
       validation_passed: ${{ steps.review.outputs.validation_passed }}
@@ -141,8 +144,8 @@ jobs:
         id: review
         env:
           TRIGGER_DATA: ${{ needs.trigger.outputs.trigger_data }}
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           source .github/workflows/scripts/review.sh
           
@@ -152,7 +155,7 @@ jobs:
           echo "BUILD_TIMEOUT=false" >> $GITHUB_ENV
           
           # 并行检查所有参数
-          validation_result=$(review_manager "validate" "$TRIGGER_DATA" "${{ github.actor }}" "${{ github.repository_owner }}")
+          validation_result=$(review_manager "validate" "$EVENT_DATA" "$TRIGGER_DATA")
           validation_exit_code=$?
           
           echo "Validation result: '$validation_result'"
@@ -161,20 +164,20 @@ jobs:
           # 如果有问题，处理拒绝逻辑
           if [ $validation_exit_code -eq 0 ] && [ "$validation_result" != "[]" ]; then
             export BUILD_REJECTED="true"
-            review_manager "handle-rejection" "$TRIGGER_DATA" "${{ github.actor }}" "${{ github.repository_owner }}" "$validation_result"
-            review_manager "output-data" "$TRIGGER_DATA" "${{ github.actor }}" "${{ github.repository_owner }}" "true" "false"
+            review_manager "handle-rejection" "$EVENT_DATA" "$TRIGGER_DATA" "$validation_result"
+            review_manager "output-data" "$EVENT_DATA" "$TRIGGER_DATA" "true" "false"
             exit 0
           else
             export BUILD_REJECTED="false"
           fi
           
           # 确定是否需要审核    
-          need_review=$(review_manager "need-review" "$TRIGGER_DATA" "${{ github.actor }}" "${{ github.repository_owner }}")
+          need_review=$(review_manager "need-review" "$EVENT_DATA" "$TRIGGER_DATA")
           echo "Need review: $need_review"
           
           # 如果需要审核，处理审核流程
           if [ "$need_review" = "true" ]; then
-            review_result=$(review_manager "handle-review" "$TRIGGER_DATA" "${{ github.actor }}" "${{ github.repository_owner }}")
+            review_result=$(review_manager "handle-review" "$EVENT_DATA" "$TRIGGER_DATA")
             review_exit_code=$?
             
             if [ $review_exit_code -eq 1 ]; then
@@ -183,22 +186,23 @@ jobs:
             elif [ $review_exit_code -eq 2 ]; then
               # 超时
               echo "BUILD_TIMEOUT=true" >> $GITHUB_ENV
-              review_manager "output-rejected" "$TRIGGER_DATA" "${{ github.actor }}" "${{ github.repository_owner }}"
+              review_manager "output-rejected" "$TRIGGER_DATA"
               exit 1
             fi
           fi
           
           # 输出数据
-          review_manager "output-data" "$TRIGGER_DATA" "${{ github.actor }}" "${{ github.repository_owner }}" "$BUILD_REJECTED" "$BUILD_TIMEOUT"
+          review_manager "output-data" "$EVENT_DATA" "$TRIGGER_DATA" "$BUILD_REJECTED" "$BUILD_TIMEOUT"
           
 
           
   # 02-加入队列
   join-queue:
     needs: [trigger, review]
-    if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.validation_passed == 'true'
     env:
       TRIGGER_DATA: ${{ needs.trigger.outputs.trigger_data }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
     runs-on: ubuntu-latest
     outputs:
       join_success: ${{ steps.join-queue.outputs.join_success }}
@@ -211,18 +215,12 @@ jobs:
         
       - name: Join build queue with optimistic lock
         id: join-queue
-        env:
-          TRIGGER_DATA: ${{ needs.trigger.outputs.trigger_data }}
         run: |
           source .github/workflows/scripts/queue-manager.sh
           
           # 使用队列管理器加入队列
           echo "Starting queue join process..."
-          join_result=$(queue_manager "join" "$QUEUE_ISSUE_NUMBER" \
-                          "${{ needs.trigger.outputs.build_id }}" \
-                          "${{ needs.trigger.outputs.trigger_type }}" \
-                          "$TRIGGER_DATA" \
-                          "5")
+          join_result=$(queue_manager "join" "$TRIGGER_DATA" "5")
           
           # 检查加入结果
           if [ $? -eq 0 ]; then
@@ -240,7 +238,9 @@ jobs:
   # 03-等待队列
   wait-queue:
     needs: [trigger, review, join-queue]
-    if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.validation_passed == 'true' && needs.join-queue.outputs.join_success == 'true'
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
     runs-on: ubuntu-latest
     outputs:
       lock_acquired: ${{ steps.wait-queue.outputs.lock_acquired }}
@@ -255,8 +255,11 @@ jobs:
         run: |
           source .github/workflows/scripts/queue-manager.sh
 
+          # 直接使用GitHub Actions的run_id作为build_id
+          build_id="${{ github.run_id }}"
+          
           # 使用队列管理器获取构建锁
-          lock_result=$(queue_manager "acquire" "$QUEUE_ISSUE_NUMBER" "${{ needs.trigger.outputs.build_id }}" "1")
+          lock_result=$(queue_manager "acquire" "$QUEUE_ISSUE_NUMBER" "$build_id" "1")
 
           # 检查获取锁的结果
           if [ $? -eq 0 ]; then
@@ -272,7 +275,6 @@ jobs:
   # 04-执行构建
   build:
     needs: [trigger, review, join-queue, wait-queue]
-    if: needs.trigger.outputs.should_proceed == 'true' && needs.review.outputs.validation_passed == 'true' && needs.join-queue.outputs.join_success == 'true' && needs.wait-queue.outputs.lock_acquired == 'true'
     runs-on: ubuntu-latest
     outputs:
       build_success: ${{ steps.build.outputs.build_success }}
@@ -286,6 +288,8 @@ jobs:
         id: build
         env:
           TRIGGER_DATA: ${{ needs.trigger.outputs.trigger_data }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           source .github/workflows/scripts/build.sh
           
@@ -309,7 +313,7 @@ jobs:
   # 05-完成处理
   finish:
     needs: [trigger, review, join-queue, wait-queue, build]
-    if: always() && (needs.trigger.outputs.should_proceed == 'true' || needs.trigger.result == 'failure')
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -319,6 +323,8 @@ jobs:
         id: finish
         env:
           TRIGGER_DATA: ${{ needs.trigger.outputs.trigger_data }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           source .github/workflows/scripts/finish.sh
           
@@ -336,6 +342,7 @@ jobs:
           # 解析构建数据
           tag=$(echo "$TRIGGER_DATA" | jq -r '.tag // empty')
           customer=$(echo "$TRIGGER_DATA" | jq -r '.customer // empty')
+          email=$(echo "$TRIGGER_DATA" | jq -r '.email // empty')
           build_id="$GITHUB_RUN_ID"
           
           # 设置完成环境
