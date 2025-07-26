@@ -351,7 +351,7 @@ generate_cleaned_issue_body() {
 - 客户: $customer
 - 标语: $slogan
 
-**状态：** 构建已启动
+**状态：** 已清理隐私
 **时间：** $(date '+%Y-%m-%d %H:%M:%S')
 
 ---

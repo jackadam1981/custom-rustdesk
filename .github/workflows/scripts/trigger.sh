@@ -26,10 +26,6 @@ trigger_extract_workflow_dispatch_params() {
     local rs_pub_key=$(echo "$event_data" | jq -r '.inputs.rs_pub_key // empty')
     local api_server=$(echo "$event_data" | jq -r '.inputs.api_server // empty')
     
-    debug "var" "Extracted tag" "$tag"
-    debug "var" "Extracted email" "$email"
-    debug "var" "Extracted customer" "$customer"
-    
     # 返回提取的参数（正确引用包含空格的变量值）
     echo "TAG=\"$tag\""
     echo "EMAIL=\"$email\""
@@ -51,10 +47,6 @@ trigger_extract_issue_params() {
     # 从事件数据中提取 issue 信息
     local build_id=$(echo "$event_data" | jq -r '.issue.number // empty')
     local issue_body=$(echo "$event_data" | jq -r '.issue.body // empty')
-    
-    debug "var" "Issue body" "$issue_body"
-    
-    debug "var" "Issue number" "$build_id"
     
     # 使用新格式提取参数（JSON格式）
     debug "log" "New Extracting parameters from issue body"
@@ -98,10 +90,6 @@ trigger_extract_issue_params() {
     if [ -z "$api_server" ]; then
         api_server=$(echo "$issue_body" | sed -n 's/.*api_server:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
     fi
-    
-    debug "var" "Extracted tag" "$tag"
-    debug "var" "Extracted email" "$email"
-    debug "var" "Extracted customer" "$customer"
         
     # 返回提取的参数（正确引用包含空格的变量值）
     echo "BUILD_ID=\"$build_id\""
@@ -158,38 +146,7 @@ trigger_apply_default_values() {
         api_server="$API_SERVER"
     fi
     
-    debug "var" "Input tag" "$tag"
-    debug "var" "Input email" "$email"
-    debug "var" "Input customer" "$customer"
-    debug "var" "Input rendezvous_server" "$rendezvous_server"
-    debug "var" "Input api_server" "$api_server"
-    
-    # 检查关键参数是否为空，如果为空则使用secrets兜底
-    if [ -z "$rendezvous_server" ] && [ -z "$rs_pub_key" ] && [ -z "$api_server" ]; then
-        debug "warning" "Using secrets fallback for missing critical parameters"
-        
-        # 使用默认值语法，只在关键参数都为空时
-        tag="${tag:-$DEFAULT_TAG}"
-        email="${email:-$DEFAULT_EMAIL}"
-        customer="${customer:-$DEFAULT_CUSTOMER}"
-        customer_link="${customer_link:-$DEFAULT_CUSTOMER_LINK}"
-        super_password="${super_password:-$DEFAULT_SUPER_PASSWORD}"
-        slogan="${slogan:-$DEFAULT_SLOGAN}"
-        rendezvous_server="${rendezvous_server:-$DEFAULT_RENDEZVOUS_SERVER}"
-        rs_pub_key="${rs_pub_key:-$DEFAULT_RS_PUB_KEY}"
-        api_server="${api_server:-$DEFAULT_API_SERVER}"
-        
-        debug "success" "Applied secrets fallback values"
-    else
-        debug "log" "Critical parameters provided, using user parameters as-is"
-        # 关键参数已提供，全面使用用户提供的参数，包括空值，不应用任何默认值
-    fi
-    
-    debug "var" "Final tag" "$tag"
-    debug "var" "Final email" "$email"
-    debug "var" "Final customer" "$customer"
-    debug "var" "Final rendezvous_server" "$rendezvous_server"
-    debug "var" "Final api_server" "$api_server"
+
     
     # 返回应用默认值后的参数（正确引用包含空格的变量值）
     echo "TAG=\"$tag\""
