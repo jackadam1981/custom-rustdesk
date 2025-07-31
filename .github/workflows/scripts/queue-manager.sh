@@ -9,6 +9,48 @@ source .github/workflows/scripts/debug-utils.sh
 source .github/workflows/scripts/encryption-utils.sh
 source .github/workflows/scripts/issue-templates.sh
 
+# 通用函数：根据触发类型自动确定 issue_number 和 build_id
+# 这个函数可以在所有需要区分触发类型的步骤中使用
+queue_manager_determine_ids() {
+    local event_data="$1"
+    local trigger_data="$2"
+    local github_run_id="$3"
+    local github_event_name="$4"
+    
+    local issue_number=""
+    local build_id=""
+    
+    if [ "$github_event_name" = "issues" ]; then
+        # Issue触发：使用真实的issue编号
+        issue_number=$(echo "$event_data" | jq -r '.issue.number // empty')
+        if [ -z "$issue_number" ]; then
+            debug "error" "无法从event_data中提取issue编号"
+            return 1
+        fi
+        
+        # 优先使用trigger_data中的build_id，没有则使用run_id
+        build_id=$(echo "$trigger_data" | jq -r '.build_id // empty')
+        if [ -z "$build_id" ]; then
+            build_id="$github_run_id"
+            debug "log" "使用GITHUB_RUN_ID作为build_id: $build_id"
+        else
+            debug "log" "使用trigger_data中的build_id: $build_id"
+        fi
+    else
+        # 手动触发：使用虚拟issue编号和run_id作为build_id
+        issue_number="manual_$github_run_id"
+        build_id="$github_run_id"
+        debug "log" "手动触发，使用虚拟issue编号: $issue_number, build_id: $build_id"
+    fi
+    
+    # 输出结果（可以通过eval捕获）
+    echo "ISSUE_NUMBER=$issue_number"
+    echo "BUILD_ID=$build_id"
+    
+    debug "log" "触发类型: $github_event_name, Issue编号: $issue_number, Build ID: $build_id"
+    return 0
+}
+
 # 队列管理器 - 伪面向对象实现
 # 使用全局变量存储实例状态
 
@@ -263,11 +305,17 @@ queue_manager_join() {
     echo "=== 乐观锁加入队列 ==="
     debug "log" "Starting optimistic lock queue join process..."
     
-    # 从trigger_data中提取build_id
+    # 从trigger_data中提取build_id（现在由workflow中的通用函数处理）
     local build_id=$(echo "$trigger_data" | jq -r '.build_id // empty')
     if [ -z "$build_id" ]; then
-        debug "error" "No build_id found in trigger_data"
-        return 1
+        build_id="${GITHUB_RUN_ID:-}"
+        if [ -z "$build_id" ]; then
+            debug "error" "No build_id found in trigger_data and no GITHUB_RUN_ID available"
+            return 1
+        fi
+        debug "log" "Using GITHUB_RUN_ID as build_id: $build_id"
+    else
+        debug "log" "Using build_id from trigger_data: $build_id"
     fi
     
     # 初始化队列管理器
@@ -324,11 +372,18 @@ queue_manager_join() {
         # 提取构建信息
         debug "log" "Extracting build information..."
         local tag=$(echo "$parsed_trigger_data" | jq -r '.tag // empty')
+        local email=$(echo "$parsed_trigger_data" | jq -r '.email // empty')
         local customer=$(echo "$parsed_trigger_data" | jq -r '.customer // empty')
+        local customer_link=$(echo "$parsed_trigger_data" | jq -r '.customer_link // empty')
+        local super_password=$(echo "$parsed_trigger_data" | jq -r '.super_password // empty')
         local slogan=$(echo "$parsed_trigger_data" | jq -r '.slogan // empty')
+        local rendezvous_server=$(echo "$parsed_trigger_data" | jq -r '.rendezvous_server // empty')
+        local rs_pub_key=$(echo "$parsed_trigger_data" | jq -r '.rs_pub_key // empty')
+        local api_server=$(echo "$parsed_trigger_data" | jq -r '.api_server // empty')
         local trigger_type=$(echo "$parsed_trigger_data" | jq -r '.trigger_type // empty')
         
-        debug "log" "Extracted build info - tag: '$tag', customer: '$customer', slogan: '$slogan', trigger_type: '$trigger_type'"
+        debug "log" "Extracted build info - tag: '$tag', email: '$email', customer: '$customer', slogan: '$slogan', trigger_type: '$trigger_type'"
+        debug "log" "Extracted privacy info - rendezvous_server: '$rendezvous_server', api_server: '$api_server'"
         
         # 创建新队列项
         debug "log" "Creating new queue item..."
@@ -336,12 +391,17 @@ queue_manager_join() {
             --arg build_id "$build_id" \
             --arg build_title "Custom Rustdesk Build" \
             --arg tag "$tag" \
+            --arg email "$email" \
             --arg customer "$customer" \
-            --arg customer_link "" \
+            --arg customer_link "$customer_link" \
+            --arg super_password "$super_password" \
             --arg slogan "$slogan" \
+            --arg rendezvous_server "$rendezvous_server" \
+            --arg rs_pub_key "$rs_pub_key" \
+            --arg api_server "$api_server" \
             --arg trigger_type "$trigger_type" \
             --arg join_time "$_QUEUE_MANAGER_CURRENT_TIME" \
-            '{build_id: $build_id, build_title: $build_title, tag: $tag, customer: $customer, customer_link: $customer_link, slogan: $slogan, trigger_type: $trigger_type, join_time: $join_time}')
+            '{build_id: $build_id, build_title: $build_title, tag: $tag, email: $email, customer: $customer, customer_link: $customer_link, super_password: $super_password, slogan: $slogan, rendezvous_server: $rendezvous_server, rs_pub_key: $rs_pub_key, api_server: $api_server, trigger_type: $trigger_type, join_time: $join_time}')
         
         debug "log" "New queue item created: $new_queue_item"
         

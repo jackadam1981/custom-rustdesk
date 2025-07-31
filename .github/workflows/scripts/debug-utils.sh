@@ -201,5 +201,5 @@ init_debug_environment() {
     fi
 }
 
-# 自动初始化调试环境
-init_debug_environment 
+# 注释掉自动初始化，避免脚本加载时就输出调试信息
+# init_debug_environment 

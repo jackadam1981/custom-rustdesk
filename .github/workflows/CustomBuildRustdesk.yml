@@ -80,7 +80,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       build_id: ${{ steps.trigger.outputs.build_id }}
-      trigger_data: ${{ steps.trigger.outputs.data }}
+      data: ${{ steps.trigger.outputs.data }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -142,65 +142,84 @@ jobs:
         
       - name: Review and validate
         id: review
+        shell: bash
         env:
-          TRIGGER_DATA: ${{ needs.trigger.outputs.trigger_data }}
+          TRIGGER_DATA: ${{ needs.trigger.outputs.data }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
         run: |
           source .github/workflows/scripts/review.sh
-          
+
+          # 重新获取 github.event
+          EVENT_DATA='${{ toJSON(github.event) }}'
+
           # 设置审核数据
           echo "TRIGGER_OUTPUT=$TRIGGER_DATA" >> $GITHUB_ENV
           echo "BUILD_REJECTED=false" >> $GITHUB_ENV
           echo "BUILD_TIMEOUT=false" >> $GITHUB_ENV
           
           # 并行检查所有参数
-          validation_result=$(review_manager "validate" "$EVENT_DATA" "$TRIGGER_DATA")
+          validation_result=$(review_manager "validate" "$TRIGGER_DATA" "$EVENT_DATA" || true)
           validation_exit_code=$?
           
-          echo "Validation result: '$validation_result'"
-          echo "Validation exit code: $validation_exit_code"
-          
           # 如果有问题，处理拒绝逻辑
-          if [ $validation_exit_code -eq 0 ] && [ "$validation_result" != "[]" ]; then
+          if [ $validation_exit_code -ne 0 ] || [ "$validation_result" != "[]" ]; then
             export BUILD_REJECTED="true"
-            review_manager "handle-rejection" "$EVENT_DATA" "$TRIGGER_DATA" "$validation_result"
-            review_manager "output-data" "$EVENT_DATA" "$TRIGGER_DATA" "true" "false"
-            exit 0
+            
+            review_manager "handle-rejection" "$EVENT_DATA" "$TRIGGER_DATA" "$validation_result" || true
+            
+            review_manager "output-data" "$EVENT_DATA" "$TRIGGER_DATA" "true" "false" || true
+            
+            # 不退出，让job成功完成，但输出验证失败标志
+            echo "validation_passed=false" >> $GITHUB_OUTPUT
+            echo "reject_reason=参数校验失败" >> $GITHUB_OUTPUT
           else
             export BUILD_REJECTED="false"
-          fi
-          
-          # 确定是否需要审核    
-          need_review=$(review_manager "need-review" "$EVENT_DATA" "$TRIGGER_DATA")
-          echo "Need review: $need_review"
-          
-          # 如果需要审核，处理审核流程
-          if [ "$need_review" = "true" ]; then
-            review_result=$(review_manager "handle-review" "$EVENT_DATA" "$TRIGGER_DATA")
-            review_exit_code=$?
             
-            if [ $review_exit_code -eq 1 ]; then
-              # 被拒绝
-              exit 1
-            elif [ $review_exit_code -eq 2 ]; then
-              # 超时
-              echo "BUILD_TIMEOUT=true" >> $GITHUB_ENV
-              review_manager "output-rejected" "$TRIGGER_DATA"
-              exit 1
+            # 确定是否需要审核    
+            need_review=$(review_manager "need-review" "$EVENT_DATA" "$TRIGGER_DATA" || true)
+            
+            # 如果需要审核，处理审核流程
+            if [ "$need_review" = "true" ]; then
+              review_result=$(review_manager "handle-review" "$EVENT_DATA" "$TRIGGER_DATA" || true)
+              review_exit_code=$?
+              
+              if [ $review_exit_code -eq 1 ]; then
+                # 审核被拒绝
+                echo "validation_passed=false" >> $GITHUB_OUTPUT
+                echo "reject_reason=审核被拒绝" >> $GITHUB_OUTPUT
+                exit 0
+              elif [ $review_exit_code -eq 2 ]; then
+                # 审核超时
+                echo "BUILD_TIMEOUT=true" >> $GITHUB_ENV
+                echo "validation_passed=false" >> $GITHUB_OUTPUT
+                echo "reject_reason=审核超时" >> $GITHUB_OUTPUT
+                review_manager "output-rejected" "$TRIGGER_DATA"
+                exit 0
+              else
+                # 审核通过
+                echo "validation_passed=true" >> $GITHUB_OUTPUT
+                echo "reject_reason=" >> $GITHUB_OUTPUT
+              fi
+            else
+              # 不需要审核，直接通过
+              echo "validation_passed=true" >> $GITHUB_OUTPUT
+              echo "reject_reason=" >> $GITHUB_OUTPUT
             fi
           fi
           
           # 输出数据
-          review_manager "output-data" "$EVENT_DATA" "$TRIGGER_DATA" "$BUILD_REJECTED" "$BUILD_TIMEOUT"
+          review_manager "output-data" "$EVENT_DATA" "$TRIGGER_DATA" "$BUILD_REJECTED" "$BUILD_TIMEOUT" || true
           
 
           
   # 02-加入队列
   join-queue:
     needs: [trigger, review]
+    if: needs.review.outputs.validation_passed == 'true'
     env:
-      TRIGGER_DATA: ${{ needs.trigger.outputs.trigger_data }}
+      TRIGGER_DATA: ${{ needs.trigger.outputs.data }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GITHUB_REPOSITORY: ${{ github.repository }}
     runs-on: ubuntu-latest
@@ -217,10 +236,39 @@ jobs:
         id: join-queue
         run: |
           source .github/workflows/scripts/queue-manager.sh
+
+          # 重新获取 github.event
+          EVENT_DATA='${{ toJSON(github.event) }}'
+
+          # 调试输出：显示环境数据
+          echo "=== 调试信息 ==="
+          echo "GITHUB_EVENT_NAME: ${{ github.event_name }}"
+          echo "GITHUB_RUN_ID: ${{ github.run_id }}"
+          echo "TRIGGER_DATA: $TRIGGER_DATA"
+          echo "EVENT_DATA: $EVENT_DATA"
           
+          # 如果是issue触发，显示issue相关信息
+          if [ "${{ github.event_name }}" = "issues" ]; then
+            echo "Issue Number: ${{ github.event.issue.number }}"
+            echo "Issue Title: ${{ github.event.issue.title }}"
+          fi
+          
+          # 如果是手动触发，显示inputs相关信息
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Workflow Dispatch Inputs: ${{ toJSON(github.event.inputs) }}"
+          fi
+          
+          echo "=== 调试信息结束 ==="
+
+          # 使用通用函数自动确定issue_number和build_id
+          eval $(queue_manager_determine_ids "$EVENT_DATA" "$TRIGGER_DATA" "${{ github.run_id }}" "${{ github.event_name }}")
+
+          echo "Issue Number: $ISSUE_NUMBER"
+          echo "Build ID: $BUILD_ID"
+
           # 使用队列管理器加入队列
           echo "Starting queue join process..."
-          join_result=$(queue_manager "join" "$TRIGGER_DATA" "5")
+          join_result=$(queue_manager "join" "1" "$TRIGGER_DATA" "5")
           
           # 检查加入结果
           if [ $? -eq 0 ]; then
@@ -238,7 +286,9 @@ jobs:
   # 03-等待队列
   wait-queue:
     needs: [trigger, review, join-queue]
+    if: needs.review.outputs.validation_passed == 'true'
     env:
+      TRIGGER_DATA: ${{ needs.trigger.outputs.data }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GITHUB_REPOSITORY: ${{ github.repository }}
     runs-on: ubuntu-latest
@@ -255,11 +305,17 @@ jobs:
         run: |
           source .github/workflows/scripts/queue-manager.sh
 
-          # 直接使用GitHub Actions的run_id作为build_id
-          build_id="${{ github.run_id }}"
+          # 重新获取 github.event
+          EVENT_DATA='${{ toJSON(github.event) }}'
+
+          # 使用通用函数自动确定issue_number和build_id
+          eval $(queue_manager_determine_ids "$EVENT_DATA" "$TRIGGER_DATA" "${{ github.run_id }}" "${{ github.event_name }}")
+
+          echo "Issue Number: $ISSUE_NUMBER"
+          echo "Build ID: $BUILD_ID"
           
           # 使用队列管理器获取构建锁
-          lock_result=$(queue_manager "acquire" "$QUEUE_ISSUE_NUMBER" "$build_id" "1")
+          lock_result=$(queue_manager "acquire" "1" "$BUILD_ID" "1")
 
           # 检查获取锁的结果
           if [ $? -eq 0 ]; then
@@ -275,6 +331,7 @@ jobs:
   # 04-执行构建
   build:
     needs: [trigger, review, join-queue, wait-queue]
+    if: needs.review.outputs.validation_passed == 'true'
     runs-on: ubuntu-latest
     outputs:
       build_success: ${{ steps.build.outputs.build_success }}
@@ -287,12 +344,15 @@ jobs:
       - name: Execute build process
         id: build
         env:
-          TRIGGER_DATA: ${{ needs.trigger.outputs.trigger_data }}
+          TRIGGER_DATA: ${{ needs.trigger.outputs.data }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           source .github/workflows/scripts/build.sh
           
+          # 重新获取 github.event
+          EVENT_DATA='${{ toJSON(github.event) }}'
+
           # 提取数据
           extracted_data=$(build_manager "extract-data" "$TRIGGER_DATA")
           
@@ -313,7 +373,7 @@ jobs:
   # 05-完成处理
   finish:
     needs: [trigger, review, join-queue, wait-queue, build]
-    if: always()
+    if: always() && (needs.review.outputs.validation_passed == 'true' || needs.review.outputs.validation_passed == 'false')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -322,12 +382,15 @@ jobs:
       - name: Complete cleanup phase
         id: finish
         env:
-          TRIGGER_DATA: ${{ needs.trigger.outputs.trigger_data }}
+          TRIGGER_DATA: ${{ needs.trigger.outputs.data }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           source .github/workflows/scripts/finish.sh
           
+          # 重新获取 github.event
+          EVENT_DATA='${{ toJSON(github.event) }}'
+
           # 确定构建状态
           if [ "${{ needs.build.result }}" = "success" ]; then
             build_status="success"

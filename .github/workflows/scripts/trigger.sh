@@ -15,6 +15,13 @@ trigger_extract_workflow_dispatch_params() {
     
     debug "log" "Extracting parameters from workflow_dispatch event"
     
+    # 添加详细的debug输出
+    debug "var" "Event data length" "${#event_data}"
+    debug "log" "Event data content:"
+    echo "$event_data" | jq '.' | while IFS= read -r line; do
+        debug "log" "  $line"
+    done
+    
     # 从完整事件数据中提取 inputs 部分
     local tag=$(echo "$event_data" | jq -r '.inputs.tag // empty')
     local email=$(echo "$event_data" | jq -r '.inputs.email // empty')
@@ -26,9 +33,16 @@ trigger_extract_workflow_dispatch_params() {
     local rs_pub_key=$(echo "$event_data" | jq -r '.inputs.rs_pub_key // empty')
     local api_server=$(echo "$event_data" | jq -r '.inputs.api_server // empty')
     
-    debug "var" "Extracted tag" "$tag"
-    debug "var" "Extracted email" "$email"
-    debug "var" "Extracted customer" "$customer"
+    # 添加提取结果的debug输出
+    debug "var" "Workflow dispatch - tag" "$tag"
+    debug "var" "Workflow dispatch - email" "$email"
+    debug "var" "Workflow dispatch - customer" "$customer"
+    debug "var" "Workflow dispatch - customer_link" "$customer_link"
+    debug "var" "Workflow dispatch - super_password" "$super_password"
+    debug "var" "Workflow dispatch - slogan" "$slogan"
+    debug "var" "Workflow dispatch - rendezvous_server" "$rendezvous_server"
+    debug "var" "Workflow dispatch - rs_pub_key" "$rs_pub_key"
+    debug "var" "Workflow dispatch - api_server" "$api_server"
     
     # 返回提取的参数（正确引用包含空格的变量值）
     echo "TAG=\"$tag\""
@@ -52,9 +66,13 @@ trigger_extract_issue_params() {
     local build_id=$(echo "$event_data" | jq -r '.issue.number // empty')
     local issue_body=$(echo "$event_data" | jq -r '.issue.body // empty')
     
-    debug "var" "Issue body" "$issue_body"
-    
+    # 添加详细的debug输出
     debug "var" "Issue number" "$build_id"
+    debug "var" "Issue body length" "${#issue_body}"
+    debug "log" "Issue body content:"
+    echo "$issue_body" | while IFS= read -r line; do
+        debug "log" "  $line"
+    done
     
     # 使用新格式提取参数（JSON格式）
     debug "log" "New Extracting parameters from issue body"
@@ -68,41 +86,60 @@ trigger_extract_issue_params() {
     local rs_pub_key=$(echo "$issue_body" | jq -r '.rs_pub_key // empty' 2>/dev/null)
     local api_server=$(echo "$issue_body" | jq -r '.api_server // empty' 2>/dev/null)
     
+    # 添加JSON格式提取的debug输出
+    debug "var" "JSON tag" "$tag"
+    debug "var" "JSON email" "$email"
+    debug "var" "JSON customer" "$customer"
+    debug "var" "JSON rendezvous_server" "$rendezvous_server"
+    debug "var" "JSON api_server" "$api_server"
+    
     # 如果新格式提取失败，尝试旧格式
     if [ -z "$tag" ]; then
         debug "log" "Old Extracting parameters from issue body"
-        tag=$(echo "$issue_body" | sed -n 's/.*tag:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
-        debug "log" "Using legacy format for tag extraction"
+        # 改进的正则表达式，匹配到行尾或下一个参数
+        tag=$(echo "$issue_body" | sed -n 's/.*tag:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | tail -1)
+        debug "log" "Using legacy format for tag extraction: $tag"
     fi
     if [ -z "$email" ]; then
-        email=$(echo "$issue_body" | sed -n 's/.*email:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
+        email=$(echo "$issue_body" | sed -n 's/.*email:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | tail -1)
+        debug "var" "Legacy email" "$email"
     fi
     if [ -z "$customer" ]; then
-        customer=$(echo "$issue_body" | sed -n 's/.*customer:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
+        customer=$(echo "$issue_body" | sed -n 's/.*customer:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | tail -1)
+        debug "var" "Legacy customer" "$customer"
     fi
     if [ -z "$customer_link" ]; then
-        customer_link=$(echo "$issue_body" | sed -n 's/.*customer_link:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
+        customer_link=$(echo "$issue_body" | sed -n 's/.*customer_link:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | tail -1)
+        debug "var" "Legacy customer_link" "$customer_link"
     fi
     if [ -z "$super_password" ]; then
-        super_password=$(echo "$issue_body" | sed -n 's/.*super_password:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
+        super_password=$(echo "$issue_body" | sed -n 's/.*super_password:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | tail -1)
+        debug "var" "Legacy super_password" "$super_password"
     fi
     if [ -z "$slogan" ]; then
-        slogan=$(echo "$issue_body" | sed -n 's/.*slogan:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
+        slogan=$(echo "$issue_body" | sed -n 's/.*slogan:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | tail -1)
+        debug "var" "Legacy slogan" "$slogan"
     fi
     if [ -z "$rendezvous_server" ]; then
-        rendezvous_server=$(echo "$issue_body" | sed -n 's/.*rendezvous_server:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
+        rendezvous_server=$(echo "$issue_body" | sed -n 's/.*rendezvous_server:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | tail -1)
+        debug "var" "Legacy rendezvous_server" "$rendezvous_server"
     fi
     if [ -z "$rs_pub_key" ]; then
-        rs_pub_key=$(echo "$issue_body" | sed -n 's/.*rs_pub_key:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
+        rs_pub_key=$(echo "$issue_body" | sed -n 's/.*rs_pub_key:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | tail -1)
+        debug "var" "Legacy rs_pub_key" "$rs_pub_key"
     fi
     if [ -z "$api_server" ]; then
-        api_server=$(echo "$issue_body" | sed -n 's/.*api_server:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | head -1)
+        api_server=$(echo "$issue_body" | sed -n 's/.*api_server:[[:space:]]*\([^[:space:]\r\n]*\).*/\1/p' | tail -1)
+        debug "var" "Legacy api_server" "$api_server"
     fi
-    
-    debug "var" "Extracted tag" "$tag"
-    debug "var" "Extracted email" "$email"
-    debug "var" "Extracted customer" "$customer"
         
+    # 添加最终提取结果的debug输出
+    debug "var" "Final tag" "$tag"
+    debug "var" "Final email" "$email"
+    debug "var" "Final customer" "$customer"
+    debug "var" "Final rendezvous_server" "$rendezvous_server"
+    debug "var" "Final api_server" "$api_server"
+    
     # 返回提取的参数（正确引用包含空格的变量值）
     echo "BUILD_ID=\"$build_id\""
     echo "TAG=\"$tag\""
@@ -136,6 +173,7 @@ trigger_apply_default_values() {
     # 检查是否为workflow_dispatch事件
     if echo "$event_data" | jq -e '.inputs' > /dev/null 2>&1; then
         # workflow_dispatch事件
+        debug "log" "Applying defaults for workflow_dispatch event"
         tag=$(echo "$event_data" | jq -r '.inputs.tag // empty')
         email=$(echo "$event_data" | jq -r '.inputs.email // empty')
         customer=$(echo "$event_data" | jq -r '.inputs.customer // empty')
@@ -145,51 +183,39 @@ trigger_apply_default_values() {
         rendezvous_server=$(echo "$event_data" | jq -r '.inputs.rendezvous_server // empty')
         rs_pub_key=$(echo "$event_data" | jq -r '.inputs.rs_pub_key // empty')
         api_server=$(echo "$event_data" | jq -r '.inputs.api_server // empty')
+        
+        debug "var" "Workflow dispatch defaults - tag" "$tag"
+        debug "var" "Workflow dispatch defaults - email" "$email"
+        debug "var" "Workflow dispatch defaults - customer" "$customer"
+        debug "var" "Workflow dispatch defaults - rendezvous_server" "$rendezvous_server"
+        debug "var" "Workflow dispatch defaults - api_server" "$api_server"
     else
         # issues事件，从环境变量中读取（因为issue参数已经在extract-issue中设置）
-        tag="$TAG"
-        email="$EMAIL"
-        customer="$CUSTOMER"
-        customer_link="$CUSTOMER_LINK"
-        super_password="$SUPER_PASSWORD"
-        slogan="$SLOGAN"
-        rendezvous_server="$RENDEZVOUS_SERVER"
-        rs_pub_key="$RS_PUB_KEY"
-        api_server="$API_SERVER"
+        # 如果参数为空，使用默认值
+        debug "var" "TAG from env" "$TAG"
+        debug "var" "EMAIL from env" "$EMAIL"
+        debug "var" "CUSTOMER from env" "$CUSTOMER"
+        debug "var" "RENDEZVOUS_SERVER from env" "$RENDEZVOUS_SERVER"
+        debug "var" "API_SERVER from env" "$API_SERVER"
+        
+        tag="${TAG:-${DEFAULT_TAG:-}}"
+        email="${EMAIL:-${DEFAULT_EMAIL:-}}"
+        customer="${CUSTOMER:-${DEFAULT_CUSTOMER:-}}"
+        customer_link="${CUSTOMER_LINK:-${DEFAULT_CUSTOMER_LINK:-}}"
+        super_password="${SUPER_PASSWORD:-${DEFAULT_SUPER_PASSWORD:-}}"
+        slogan="${SLOGAN:-${DEFAULT_SLOGAN:-}}"
+        rendezvous_server="${RENDEZVOUS_SERVER:-${DEFAULT_RENDEZVOUS_SERVER:-}}"
+        rs_pub_key="${RS_PUB_KEY:-${DEFAULT_RS_PUB_KEY:-}}"
+        api_server="${API_SERVER:-${DEFAULT_API_SERVER:-}}"
+        
+        debug "var" "After defaults - tag" "$tag"
+        debug "var" "After defaults - email" "$email"
+        debug "var" "After defaults - customer" "$customer"
+        debug "var" "After defaults - rendezvous_server" "$rendezvous_server"
+        debug "var" "After defaults - api_server" "$api_server"
     fi
     
-    debug "var" "Input tag" "$tag"
-    debug "var" "Input email" "$email"
-    debug "var" "Input customer" "$customer"
-    debug "var" "Input rendezvous_server" "$rendezvous_server"
-    debug "var" "Input api_server" "$api_server"
-    
-    # 检查关键参数是否为空，如果为空则使用secrets兜底
-    if [ -z "$rendezvous_server" ] && [ -z "$rs_pub_key" ] && [ -z "$api_server" ]; then
-        debug "warning" "Using secrets fallback for missing critical parameters"
-        
-        # 使用默认值语法，只在关键参数都为空时
-        tag="${tag:-$DEFAULT_TAG}"
-        email="${email:-$DEFAULT_EMAIL}"
-        customer="${customer:-$DEFAULT_CUSTOMER}"
-        customer_link="${customer_link:-$DEFAULT_CUSTOMER_LINK}"
-        super_password="${super_password:-$DEFAULT_SUPER_PASSWORD}"
-        slogan="${slogan:-$DEFAULT_SLOGAN}"
-        rendezvous_server="${rendezvous_server:-$DEFAULT_RENDEZVOUS_SERVER}"
-        rs_pub_key="${rs_pub_key:-$DEFAULT_RS_PUB_KEY}"
-        api_server="${api_server:-$DEFAULT_API_SERVER}"
-        
-        debug "success" "Applied secrets fallback values"
-    else
-        debug "log" "Critical parameters provided, using user parameters as-is"
-        # 关键参数已提供，全面使用用户提供的参数，包括空值，不应用任何默认值
-    fi
-    
-    debug "var" "Final tag" "$tag"
-    debug "var" "Final email" "$email"
-    debug "var" "Final customer" "$customer"
-    debug "var" "Final rendezvous_server" "$rendezvous_server"
-    debug "var" "Final api_server" "$api_server"
+
     
     # 返回应用默认值后的参数（正确引用包含空格的变量值）
     echo "TAG=\"$tag\""
@@ -256,6 +282,7 @@ trigger_generate_final_data() {
     
     if echo "$event_data" | jq -e '.inputs' > /dev/null 2>&1; then
         # workflow_dispatch事件
+        debug "log" "Generating final data for workflow_dispatch event"
         tag=$(echo "$event_data" | jq -r '.inputs.tag // empty')
         email=$(echo "$event_data" | jq -r '.inputs.email // empty')
         customer=$(echo "$event_data" | jq -r '.inputs.customer // empty')
@@ -265,8 +292,20 @@ trigger_generate_final_data() {
         rendezvous_server=$(echo "$event_data" | jq -r '.inputs.rendezvous_server // empty')
         rs_pub_key=$(echo "$event_data" | jq -r '.inputs.rs_pub_key // empty')
         api_server=$(echo "$event_data" | jq -r '.inputs.api_server // empty')
+        
+        debug "var" "Generate workflow dispatch - tag" "$tag"
+        debug "var" "Generate workflow dispatch - email" "$email"
+        debug "var" "Generate workflow dispatch - customer" "$customer"
+        debug "var" "Generate workflow dispatch - rendezvous_server" "$rendezvous_server"
+        debug "var" "Generate workflow dispatch - api_server" "$api_server"
     else
         # issues事件，从环境变量中读取
+        debug "var" "Generate - TAG from env" "$TAG"
+        debug "var" "Generate - EMAIL from env" "$EMAIL"
+        debug "var" "Generate - CUSTOMER from env" "$CUSTOMER"
+        debug "var" "Generate - RENDEZVOUS_SERVER from env" "$RENDEZVOUS_SERVER"
+        debug "var" "Generate - API_SERVER from env" "$API_SERVER"
+        
         tag="$TAG"
         email="$EMAIL"
         customer="$CUSTOMER"
@@ -276,10 +315,37 @@ trigger_generate_final_data() {
         rendezvous_server="$RENDEZVOUS_SERVER"
         rs_pub_key="$RS_PUB_KEY"
         api_server="$API_SERVER"
+        
+        debug "var" "Generate - final tag" "$tag"
+        debug "var" "Generate - final email" "$email"
+        debug "var" "Generate - final customer" "$customer"
+        debug "var" "Generate - final rendezvous_server" "$rendezvous_server"
+        debug "var" "Generate - final api_server" "$api_server"
     fi
     
-    # 生成JSON数据（不包含build_id和trigger_type，这些可以从event_data中提取）
+    # 从event_data中提取build_id
+    local build_id=""
+    if echo "$event_data" | jq -e '.inputs' > /dev/null 2>&1; then
+        # workflow_dispatch事件，使用run_id
+        build_id="$GITHUB_RUN_ID"
+    else
+        # issues事件，使用issue number
+        build_id=$(echo "$event_data" | jq -r '.issue.number // empty')
+    fi
+    
+    # 确定触发类型
+    local trigger_type=""
+    if echo "$event_data" | jq -e '.inputs' > /dev/null 2>&1; then
+        trigger_type="workflow_dispatch"
+    else
+        trigger_type="issue"
+    fi
+    
+    debug "var" "Trigger type" "$trigger_type"
+    
+    # 生成JSON数据（包含build_id和trigger_type）
     local data=$(jq -c -n \
+        --arg build_id "$build_id" \
         --arg tag "$final_tag" \
         --arg original_tag "$tag" \
         --arg email "$email" \
@@ -290,7 +356,8 @@ trigger_generate_final_data() {
         --arg rendezvous_server "$rendezvous_server" \
         --arg rs_pub_key "$rs_pub_key" \
         --arg api_server "$api_server" \
-        '{tag: $tag, original_tag: $original_tag, email: $email, customer: $customer, customer_link: $customer_link, super_password: $super_password, slogan: $slogan, rendezvous_server: $rendezvous_server, rs_pub_key: $rs_pub_key, api_server: $api_server}')
+        --arg trigger_type "$trigger_type" \
+        '{build_id: $build_id, tag: $tag, original_tag: $original_tag, email: $email, customer: $customer, customer_link: $customer_link, super_password: $super_password, slogan: $slogan, rendezvous_server: $rendezvous_server, rs_pub_key: $rs_pub_key, api_server: $api_server, trigger_type: $trigger_type}')
     
     debug "var" "Generated JSON data" "$data"
     echo "$data"
@@ -347,10 +414,21 @@ trigger_output_to_github() {
     # 从final_data中提取build_id
     local build_id=$(echo "$final_data" | jq -r '.build_id // empty')
     
+    # 调试：输出详细信息
+    debug "var" "Final data to output" "$final_data"
+    debug "var" "Build ID extracted" "$build_id"
+    debug "var" "GITHUB_OUTPUT file" "$GITHUB_OUTPUT"
+    
     # 使用GitHub Actions的fromJSON函数从final_data中提取字段
     # 这些变量将在工作流中通过fromJSON设置
     echo "data=$final_data" >> $GITHUB_OUTPUT
     echo "build_id=$build_id" >> $GITHUB_OUTPUT
+    
+    # 调试：验证输出是否成功
+    debug "log" "Output file contents:"
+    cat "$GITHUB_OUTPUT" | while IFS= read -r line; do
+        debug "log" "  $line"
+    done
     
     debug "success" "Output written to GitHub Actions"
     
