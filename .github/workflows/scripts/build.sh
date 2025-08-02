@@ -30,13 +30,13 @@ process_build_data() {
     # 校验输入JSON格式
     if ! debug "validate" "build.sh-处理前数据校验" "$current_data"; then
         debug "error" "build.sh处理前JSON格式不正确"
-        return 1
-    fi
+    return 1
+  fi
     local processed=$(echo "$current_data" | jq -c --arg build_time "$(date -Iseconds)" '. + {built: true, build_time: $build_time}')
     # 校验处理后JSON格式
     if ! debug "validate" "build.sh-处理后数据校验" "$processed"; then
         debug "error" "build.sh处理后JSON格式不正确"
-        return 1
+      return 1
     fi
     echo "CURRENT_DATA=$processed" >> $GITHUB_ENV
     echo "$processed"
@@ -48,9 +48,9 @@ output_build_data() {
     # 校验输出JSON格式
     if ! debug "validate" "build.sh-输出数据校验" "$output_data"; then
         debug "error" "build.sh输出的JSON格式不正确"
-        return 1
-    fi
-    
+    return 1
+  fi
+
     # 安全地输出到 GitHub Actions
     if [ -n "$GITHUB_OUTPUT" ]; then
         echo "data=$output_data" >> $GITHUB_OUTPUT
@@ -67,11 +67,11 @@ output_build_data() {
 
 # 主构建管理函数 - 供工作流调用
 build_manager() {
-    local operation="$1"
-    local input_data="$2"
+  local operation="$1"
+  local input_data="$2"
     local pause_seconds="${3:-0}"
-    
-    case "$operation" in
+
+  case "$operation" in
         "extract-data")
             extract_build_data "$input_data"
             ;;
@@ -84,10 +84,10 @@ build_manager() {
             ;;
         "pause")
             pause_for_test "$pause_seconds"
-            ;;
-        *)
-            debug "error" "Unknown operation: $operation"
-            return 1
-            ;;
-    esac
-} 
+    ;;
+  *)
+    debug "error" "Unknown operation: $operation"
+    return 1
+    ;;
+  esac
+}

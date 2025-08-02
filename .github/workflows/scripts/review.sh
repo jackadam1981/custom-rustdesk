@@ -12,10 +12,11 @@ validate_server_address() {
     local server_address="$1"
     local server_name="$2"
     
-    # 去除协议前缀和端口
+    # 去除协议前缀、端口和路径
     local clean_address="$server_address"
     clean_address="${clean_address#*://}"
     clean_address="${clean_address%%:*}"
+    clean_address="${clean_address%%/*}"
     
     # 检查是否为空
     if [ -z "$clean_address" ]; then
@@ -53,10 +54,11 @@ validate_server_address() {
 check_private_ip() {
     local ip="$1"
     
-    # 去除协议前缀和端口
+    # 去除协议前缀、端口和路径
     local clean_ip="$ip"
     clean_ip="${clean_ip#*://}"
     clean_ip="${clean_ip%%:*}"
+    clean_ip="${clean_ip%%/*}"
     
     # 检查是否为IP地址格式
     if [[ "$clean_ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
@@ -75,10 +77,11 @@ check_private_ip() {
 is_valid_ip() {
     local ip="$1"
     
-    # 去除协议前缀和端口
+    # 去除协议前缀、端口和路径
     local clean_ip="$ip"
     clean_ip="${clean_ip#*://}"
     clean_ip="${clean_ip%%:*}"
+    clean_ip="${clean_ip%%/*}"
     
     # 检查是否为IP地址格式
     if [[ "$clean_ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then

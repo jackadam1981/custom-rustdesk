@@ -93,6 +93,206 @@ $queue_data
 EOF
 }
 
+# ========== 三锁架构模板函数 ==========
+
+# 生成 Issue 锁状态模板
+generate_issue_lock_body() {
+  local current_time="$1"
+  local queue_data="$2"
+  local issue_lock_version="$3"
+  local issue_locked_by="${4:-无}"
+  local queue_locked_by="${5:-无}"
+  local build_locked_by="${6:-无}"
+
+  # 确定 Issue 锁状态
+  local issue_lock_status="空闲 🔓"
+  if [ "$issue_locked_by" != "无" ]; then
+    issue_lock_status="占用 🔒"
+  fi
+
+  cat <<EOF
+## Issue 锁管理
+
+**最后更新时间：** $current_time
+
+### Issue 锁状态
+- **Issue 锁状态：** $issue_lock_status
+- **Issue 锁持有者：** $issue_locked_by
+- **版本：** $issue_lock_version
+
+### 当前锁状态概览
+- **队列锁：** $queue_locked_by
+- **构建锁：** $build_locked_by
+
+---
+
+### Issue 锁数据
+\`\`\`json
+$queue_data
+\`\`\`
+EOF
+}
+
+# 生成队列管理模板（三锁架构）
+generate_queue_management_body() {
+  local current_time="$1"
+  local queue_data="$2"
+  local issue_lock_status="$3"
+  local queue_lock_status="$4"
+  local build_lock_status="$5"
+  local version="$6"
+
+  # 计算队列统计信息
+  local queue_length=$(echo "$queue_data" | jq '.queue | length // 0')
+  local issue_count=$(echo "$queue_data" | jq '.queue | map(select(.trigger_type == "issue")) | length // 0')
+  local workflow_count=$(echo "$queue_data" | jq '.queue | map(select(.trigger_type == "workflow_dispatch")) | length // 0')
+
+  # 提取锁持有者信息
+  local issue_locked_by=$(echo "$queue_data" | jq -r '.issue_locked_by // "无"')
+  local queue_locked_by=$(echo "$queue_data" | jq -r '.queue_locked_by // "无"')
+  local build_locked_by=$(echo "$queue_data" | jq -r '.build_locked_by // "无"')
+
+  cat <<EOF
+## 构建队列管理
+
+**最后更新时间：** $current_time
+
+### 三锁状态
+- **Issue 锁状态：** $issue_lock_status
+- **队列锁状态：** $queue_lock_status
+- **构建锁状态：** $build_lock_status
+
+### 锁持有者
+- **Issue 锁持有者：** $issue_locked_by
+- **队列锁持有者：** $queue_locked_by
+- **构建锁持有者：** $build_locked_by
+
+### 构建队列
+- **当前数量：** $queue_length/5
+- **Issue触发：** $issue_count/3
+- **手动触发：** $workflow_count/5
+
+---
+
+### 队列数据
+\`\`\`json
+$queue_data
+\`\`\`
+EOF
+}
+
+# 生成三锁状态模板（替代混合锁）
+generate_triple_lock_status_body() {
+  local current_time="$1"
+  local queue_data="$2"
+  local version="$3"
+  local issue_lock_status="$4"
+  local queue_lock_status="$5"
+  local build_lock_status="$6"
+
+  # 计算队列统计信息
+  local queue_length=$(echo "$queue_data" | jq '.queue | length // 0')
+  local issue_count=$(echo "$queue_data" | jq '.queue | map(select(.trigger_type == "issue")) | length // 0')
+  local workflow_count=$(echo "$queue_data" | jq '.queue | map(select(.trigger_type == "workflow_dispatch")) | length // 0')
+
+  # 提取锁持有者信息
+  local issue_locked_by=$(echo "$queue_data" | jq -r '.issue_locked_by // "无"')
+  local queue_locked_by=$(echo "$queue_data" | jq -r '.queue_locked_by // "无"')
+  local build_locked_by=$(echo "$queue_data" | jq -r '.build_locked_by // "无"')
+
+  cat <<EOF
+## 构建队列管理
+
+**最后更新时间：** $current_time
+
+### 三锁状态
+- **Issue 锁状态：** $issue_lock_status
+- **队列锁状态：** $queue_lock_status
+- **构建锁状态：** $build_lock_status
+
+### 锁持有者
+- **Issue 锁持有者：** $issue_locked_by
+- **队列锁持有者：** $queue_locked_by
+- **构建锁持有者：** $build_locked_by
+
+### 构建队列
+- **当前数量：** $queue_length/5
+- **Issue触发：** $issue_count/3
+- **手动触发：** $workflow_count/5
+
+---
+
+### 队列数据
+\`\`\`json
+$queue_data
+\`\`\`
+EOF
+}
+
+# 生成队列锁状态模板
+generate_queue_lock_body() {
+  local current_time="$1"
+  local queue_data="$2"
+  local queue_lock_version="$3"
+  local queue_locked_by="${4:-无}"
+
+  # 确定队列锁状态
+  local queue_lock_status="空闲 🔓"
+  if [ "$queue_locked_by" != "无" ]; then
+    queue_lock_status="占用 🔒"
+  fi
+
+  cat <<EOF
+# 队列锁管理
+
+**最后更新时间：** $current_time
+
+### 队列锁状态
+- **队列锁状态：** $queue_lock_status
+- **队列锁持有者：** $queue_locked_by
+- **版本：** $queue_lock_version
+
+---
+
+### 队列锁数据
+\`\`\`json
+$queue_data
+\`\`\`
+EOF
+}
+
+# 生成构建锁状态模板
+generate_build_lock_body() {
+  local current_time="$1"
+  local queue_data="$2"
+  local build_lock_version="$3"
+  local build_locked_by="${4:-无}"
+
+  # 确定构建锁状态
+  local build_lock_status="空闲 🔓"
+  if [ "$build_locked_by" != "无" ]; then
+    build_lock_status="占用 🔒"
+  fi
+
+  cat <<EOF
+# 构建锁管理
+
+**最后更新时间：** $current_time
+
+### 构建锁状态
+- **构建锁状态：** $build_lock_status
+- **构建锁持有者：** $build_locked_by
+- **版本：** $build_lock_version
+
+---
+
+### 构建锁数据
+\`\`\`json
+$queue_data
+\`\`\`
+EOF
+}
+
 # 生成队列清理记录
 generate_queue_cleanup_record() {
     local current_time="$1"
