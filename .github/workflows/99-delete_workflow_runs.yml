@@ -35,10 +35,10 @@ jobs:
 
       - name: Authenticate
         run: |
-          if [ -n "${{ secrets.ISSUE_TOKEN }}" ]; then
-            echo "${{ secrets.ISSUE_TOKEN }}" | gh auth login --with-token
+          if [ -n "${{ secrets.BUILD_TOKEN }}" ]; then
+            echo "${{ secrets.BUILD_TOKEN }}" | gh auth login --with-token
           else
-            echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+            echo "${{ secrets.BUILD_TOKEN }}" | gh auth login --with-token
           fi
 
       - name: List and Delete Runs

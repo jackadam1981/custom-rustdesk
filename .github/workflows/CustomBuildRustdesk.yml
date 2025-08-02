@@ -56,7 +56,7 @@ permissions:
   actions: read
 
 env:
-  GITHUB_TOKEN: ${{ secrets.ISSUE_TOKEN }}
+  GITHUB_TOKEN: ${{ secrets.BUILD_TOKEN }}
   ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
   # 队列管理配置
   QUEUE_ISSUE_NUMBER: '1'
@@ -88,7 +88,7 @@ jobs:
       - name: Setup trigger parameters
         id: trigger
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.BUILD_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           source .github/workflows/scripts/trigger.sh
@@ -145,7 +145,7 @@ jobs:
         shell: bash
         env:
           TRIGGER_DATA: ${{ needs.trigger.outputs.data }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.BUILD_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
         run: |
@@ -220,7 +220,7 @@ jobs:
     if: needs.review.outputs.validation_passed == 'true'
     env:
       TRIGGER_DATA: ${{ needs.trigger.outputs.data }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.BUILD_TOKEN }}
       GITHUB_REPOSITORY: ${{ github.repository }}
     runs-on: ubuntu-latest
     outputs:
@@ -289,7 +289,7 @@ jobs:
     if: needs.review.outputs.validation_passed == 'true'
     env:
       TRIGGER_DATA: ${{ needs.trigger.outputs.data }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.BUILD_TOKEN }}
       GITHUB_REPOSITORY: ${{ github.repository }}
     runs-on: ubuntu-latest
     outputs:
@@ -345,7 +345,7 @@ jobs:
         id: build
         env:
           TRIGGER_DATA: ${{ needs.trigger.outputs.data }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.BUILD_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           source .github/workflows/scripts/build.sh
@@ -383,7 +383,7 @@ jobs:
         id: finish
         env:
           TRIGGER_DATA: ${{ needs.trigger.outputs.data }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.BUILD_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           source .github/workflows/scripts/finish.sh

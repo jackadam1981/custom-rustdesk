@@ -30,11 +30,11 @@ jobs:
 
       - name: Authenticate and Check Permissions
         run: |
-          if [ -n "${{ secrets.ISSUE_TOKEN }}" ]; then
-            echo "${{ secrets.ISSUE_TOKEN }}" | gh auth login --with-token
+          if [ -n "${{ secrets.BUILD_TOKEN }}" ]; then
+            echo "${{ secrets.BUILD_TOKEN }}" | gh auth login --with-token
             echo "✅ 使用Personal Access Token认证"
           else
-            echo "❌ 未设置ISSUE_TOKEN，请参考quick_setup_guide.md"
+            echo "❌ 未设置BUILD_TOKEN，请参考quick_setup_guide.md"
             exit 1
           fi
           
